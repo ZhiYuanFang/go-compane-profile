@@ -6,7 +6,7 @@ RUN npm install
 COPY admin/ ./
 RUN npm run build
 
-FROM golang:1.19-alpine AS go-build
+FROM golang:1.22-alpine AS go-build
 WORKDIR /src
 RUN apk add --no-cache git gcc musl-dev
 COPY go.mod go.sum ./

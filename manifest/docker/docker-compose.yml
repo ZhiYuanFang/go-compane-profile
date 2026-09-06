@@ -14,7 +14,7 @@ services:
   compane-profile:
     image: ${REGISTRY}/compane-profile:${IMAGE_TAG}
     container_name: compane-profile
-    restart: unless-stopped
+    restart: on-failure:1
     ports:
       - "9100:9100"
     env_file:
