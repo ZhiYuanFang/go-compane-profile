@@ -1,0 +1,41 @@
+.buildpath
+.hgignore.swp
+.project
+.orig
+.swp
+.idea/
+.settings/
+.vscode/
+bin/
+**/.DS_Store
+gf
+main
+main.exe
+output/
+manifest/output/
+temp/
+temp.yaml
+bin
+
+# Env & secrets (never commit real credentials)
+.env
+.env.*
+!.env.example
+!**/.env.example
+manifest/docker/env/.env.prod
+manifest/docker/env/.env.local
+manifest/docker/env/.env.test
+*.pem
+*.p8
+*credentials*
+*secret*
+
+# Admin frontend
+admin/node_modules/
+admin/dist/
+admin/.vite/
+
+# Local seed / scratch
+_company_seed_src.js
+_tmp_*.py
+*.log

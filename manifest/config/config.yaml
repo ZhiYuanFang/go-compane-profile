@@ -1,0 +1,16 @@
+server:
+  address: ":9100"
+  openapiPath: "/api.json"
+  swaggerPath: "/swagger"
+  clientMaxBodySize: "12MB"
+  serverRoot: "resource/public"
+
+logger:
+  level: "all"
+  stdout: true
+
+database:
+  default:
+    # Filled at runtime via gdb.SetConfigGroup / GF_DATABASE_DEFAULT_LINK from .env
+    link: ""
+    debug: true

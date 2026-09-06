@@ -1,0 +1,23 @@
+# go-compane-profile — single service
+#
+# Start (prod):
+#   docker compose --env-file env/.env.prod -f docker-compose.yml pull
+#   docker compose --env-file env/.env.prod -f docker-compose.yml up -d --no-build
+#
+# --env-file supplies both:
+#   - Compose interpolation (${REGISTRY}, ${IMAGE_TAG})
+#   - Container env (via env_file below)
+
+name: go-compane-profile
+
+services:
+  compane-profile:
+    image: ${REGISTRY}/compane-profile:${IMAGE_TAG}
+    container_name: compane-profile
+    restart: unless-stopped
+    ports:
+      - "9100:9100"
+    env_file:
+      - env/.env.prod
+    environment:
+      SERVER_ADDRESS: ":9100"
