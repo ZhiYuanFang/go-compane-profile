@@ -23,18 +23,24 @@ Never commit real `.env.prod`.
 
 ## Docker Compose
 
+Compose project name remains `go-compane-profile`; the application **service key** is `muhou` (`container_name: muhou`).
+
 ```bash
 cd manifest/docker
 docker compose --env-file env/.env.prod -f docker-compose.yml pull
 docker compose --env-file env/.env.prod -f docker-compose.yml up -d --no-build
 ```
 
+Useful: `docker compose --env-file env/.env.prod logs -f muhou`
+
+If renaming from an older service key (`compane-profile`), run `down` once before `up` to avoid container-name conflicts.
+
 Container listens on host **9100**; env vars come from `env/.env.prod`.
 
 ## ACR
 
 - Namespace: `compane-profile`
-- Image: `{REGISTRY}/muhou:{IMAGE_TAG}`
+- Image repo: `muhou` → `{REGISTRY}/muhou:{IMAGE_TAG}` (e.g. `compane-profile/muhou:v0.0.1`)
 - Example pull (VPC):  
   `crpi-lff3xynwzvqxxxjk-vpc.cn-hangzhou.personal.cr.aliyuncs.com/compane-profile/muhou:v0.0.1`
 - CI: push tag `v0.0.1` or run workflow_dispatch; configure GitHub Secrets `ACR_USERNAME` / `ACR_PASSWORD` and Environment `REGISTRY`.

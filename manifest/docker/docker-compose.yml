@@ -1,4 +1,4 @@
-# go-compane-profile — single service
+# go-compane-profile — single service (Compose service key: muhou)
 #
 # Start (prod):
 #   docker compose --env-file env/.env.prod -f docker-compose.yml pull
@@ -7,13 +7,16 @@
 # --env-file supplies both:
 #   - Compose interpolation (${REGISTRY}, ${IMAGE_TAG})
 #   - Container env (via env_file below)
+#
+# Image resolves to: {REGISTRY}/muhou:{IMAGE_TAG}
+# e.g. …/compane-profile/muhou:v0.0.1
 
 name: go-compane-profile
 
 services:
-  compane-profile:
-    image: ${REGISTRY}/compane-profile:${IMAGE_TAG}
-    container_name: compane-profile
+  muhou:
+    image: ${REGISTRY}/muhou:${IMAGE_TAG}
+    container_name: muhou
     restart: on-failure:1
     ports:
       - "9100:9100"

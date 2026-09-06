@@ -1,29 +1,38 @@
 <template>
-  <div class="dual">
+  <div
+    class="dual"
+    :class="{ 'is-dragover': dragOver, disabled: disabled || processing }"
+    @dragenter.prevent="onDragEnter"
+    @dragover.prevent="onDragOver"
+    @dragleave.prevent="onDragLeave"
+    @drop.prevent="onDrop"
+  >
     <div class="dual-head">
       <span class="dual-label">{{ label }}</span>
       <span v-if="processing" class="dual-status">处理中…</span>
       <span v-else-if="modelValue?.pending" class="dual-status pending">待上传</span>
       <span v-else-if="previewUrl" class="dual-status">已保存</span>
+      <span v-else-if="dragOver" class="dual-status pending">松开以添加</span>
     </div>
 
     <div class="dual-body">
       <div
         class="preview"
-        :class="{ empty: !previewUrl, clickable: !!previewUrl }"
+        :class="{ empty: !previewUrl, clickable: true }"
         role="button"
-        :tabindex="previewUrl ? 0 : -1"
-        @click="openLightbox"
-        @keydown.enter.prevent="openLightbox"
+        tabindex="0"
+        @click="onPreviewClick"
+        @keydown.enter.prevent="onPreviewClick"
       >
         <img v-if="previewUrl" :src="previewUrl" :alt="label" />
-        <span v-else class="placeholder">暂无图片</span>
+        <span v-else class="placeholder">拖拽图片到此处，或点击选择</span>
       </div>
 
       <div class="dual-actions">
         <label class="btn btn-sm">
           {{ previewUrl ? '重新选择' : '选择图片' }}
           <input
+            ref="fileInput"
             type="file"
             accept="image/*"
             hidden
@@ -72,7 +81,10 @@ const props = defineProps({
     default: () => ({ thumb: '', original: '', pending: null }),
   },
   label: { type: String, default: '图片' },
-  hint: { type: String, default: '选择后本地压缩为原图≤5MB + 缩略图≤500KB，提交时再上传' },
+  hint: {
+    type: String,
+    default: '可拖拽图片到此处；选择后本地压缩为原图≤5MB + 缩略图≤500KB，提交时再上传',
+  },
   disabled: { type: Boolean, default: false },
 })
 
@@ -83,6 +95,9 @@ const error = ref('')
 const localPreview = ref('')
 const localOriginalPreview = ref('')
 const lightboxOpen = ref(false)
+const dragOver = ref(false)
+const dragDepth = ref(0)
+const fileInput = ref(null)
 
 const previewUrl = computed(() => {
   if (localPreview.value) return localPreview.value
@@ -143,10 +158,33 @@ function closeLightbox() {
   lightboxOpen.value = false
 }
 
-async function onFile(e) {
-  const file = e.target.files?.[0]
-  e.target.value = ''
+function openFilePicker() {
+  if (props.disabled || processing.value) return
+  fileInput.value?.click()
+}
+
+function onPreviewClick() {
+  if (props.disabled || processing.value) return
+  if (!previewUrl.value) {
+    openFilePicker()
+    return
+  }
+  openLightbox()
+}
+
+function firstImageFile(fileList) {
+  if (!fileList?.length) return null
+  for (const file of fileList) {
+    if (file && typeof file.type === 'string' && file.type.startsWith('image/')) {
+      return file
+    }
+  }
+  return null
+}
+
+async function applyFile(file) {
   if (!file) return
+  if (props.disabled || processing.value) return
 
   processing.value = true
   error.value = ''
@@ -168,6 +206,50 @@ async function onFile(e) {
   }
 }
 
+async function onFile(e) {
+  const file = e.target.files?.[0]
+  e.target.value = ''
+  if (!file) return
+  await applyFile(file)
+}
+
+function onDragEnter() {
+  if (props.disabled || processing.value) return
+  dragDepth.value += 1
+  dragOver.value = true
+}
+
+function onDragOver() {
+  if (props.disabled || processing.value) return
+  dragOver.value = true
+}
+
+function onDragLeave() {
+  dragDepth.value = Math.max(0, dragDepth.value - 1)
+  if (dragDepth.value === 0) {
+    dragOver.value = false
+  }
+}
+
+async function onDrop(e) {
+  dragDepth.value = 0
+  dragOver.value = false
+  if (props.disabled || processing.value) return
+
+  const file = firstImageFile(e.dataTransfer?.files)
+  if (!file) {
+    error.value = '请拖入图片文件'
+    return
+  }
+
+  if (previewUrl.value) {
+    const ok = window.confirm('已有图片，确定要替换吗？')
+    if (!ok) return
+  }
+
+  await applyFile(file)
+}
+
 function clear() {
   revokeObjectUrl(localPreview.value)
   revokeObjectUrl(localOriginalPreview.value)
@@ -185,6 +267,16 @@ function clear() {
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: rgba(0, 0, 0, 0.2);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.dual.is-dragover {
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.dual.disabled {
+  opacity: 0.7;
 }
 
 .dual-head {
@@ -227,15 +319,12 @@ function clear() {
   display: flex;
   align-items: center;
   justify-content: center;
-}
-
-.preview.clickable {
   cursor: zoom-in;
 }
 
 .preview.empty {
   border-style: dashed;
-  cursor: default;
+  cursor: pointer;
 }
 
 .preview img {
@@ -245,7 +334,10 @@ function clear() {
 }
 
 .placeholder {
-  font-size: 0.8rem;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  padding: 0 0.5rem;
+  text-align: center;
   color: var(--text-muted);
 }
 
