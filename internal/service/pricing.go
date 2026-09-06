@@ -29,6 +29,10 @@ func UpdatePricing(ctx context.Context, in DualURL) (*DualURL, error) {
 	}
 	var existing entity.Pricing
 	_ = g.DB().Model("pricing").Ctx(ctx).OrderAsc("id").Limit(1).Scan(&existing)
+	old := DualURL{}
+	if existing.Id != 0 {
+		old = DualURL{Thumb: existing.ThumbUrl, Original: existing.OriginalUrl}
+	}
 	if existing.Id == 0 {
 		if _, err := g.DB().Model("pricing").Ctx(ctx).Data(data).Insert(); err != nil {
 			return nil, err
@@ -37,6 +41,7 @@ func UpdatePricing(ctx context.Context, in DualURL) (*DualURL, error) {
 		if _, err := g.DB().Model("pricing").Ctx(ctx).Where("id", existing.Id).Data(data).Update(); err != nil {
 			return nil, err
 		}
+		deleteReplacedDualsBestEffort(ctx, []DualURL{old}, []DualURL{in})
 	}
 	return GetPricing(ctx)
 }

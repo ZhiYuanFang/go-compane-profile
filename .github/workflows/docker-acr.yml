@@ -1,4 +1,4 @@
-# Build single compane-profile image and push to Aliyun ACR.
+# Build single muhou image and push to Aliyun ACR.
 # Trigger: git tag v*  OR  workflow_dispatch
 #
 # ACR credentials from GitHub Secrets / Environments (not repo .env files):
@@ -107,5 +107,5 @@ jobs:
           file: manifest/docker/Dockerfile
           push: true
           tags: |
-            ${{ steps.acr.outputs.registry }}/compane-profile:${{ steps.acr.outputs.primary_tag }}
-            ${{ steps.acr.outputs.registry }}/compane-profile:${{ github.sha }}
+            ${{ steps.acr.outputs.registry }}/muhou:${{ steps.acr.outputs.primary_tag }}
+            ${{ steps.acr.outputs.registry }}/muhou:${{ github.sha }}

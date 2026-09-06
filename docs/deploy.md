@@ -33,10 +33,10 @@ Container listens on host **9100**; env vars come from `env/.env.prod`.
 
 ## ACR
 
-- Namespace: `muhou`
-- Image: `{REGISTRY}/compane-profile:{IMAGE_TAG}`
+- Namespace: `compane-profile`
+- Image: `{REGISTRY}/muhou:{IMAGE_TAG}`
 - Example pull (VPC):  
-  `crpi-lff3xynwzvqxxxjk-vpc.cn-hangzhou.personal.cr.aliyuncs.com/muhou/compane-profile:v0.0.1`
+  `crpi-lff3xynwzvqxxxjk-vpc.cn-hangzhou.personal.cr.aliyuncs.com/compane-profile/muhou:v0.0.1`
 - CI: push tag `v0.0.1` or run workflow_dispatch; configure GitHub Secrets `ACR_USERNAME` / `ACR_PASSWORD` and Environment `REGISTRY`.
 
 ## Nginx sketch

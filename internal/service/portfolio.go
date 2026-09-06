@@ -195,6 +195,12 @@ func UpdatePortfolio(ctx context.Context, id string, in PortfolioInput) (*AdminP
 	if err != nil {
 		return nil, err
 	}
+	oldCover := DualURL{Thumb: row.CoverThumbUrl, Original: row.CoverOriginalUrl}
+	oldRenders, oldReals, err := loadGallery(ctx, row.Id)
+	if err != nil {
+		return nil, err
+	}
+	touchGallery := in.Renders != nil || in.Reals != nil
 	err = g.DB().Transaction(ctx, func(ctx context.Context, tx gdb.TX) error {
 		data := g.Map{
 			"address":            in.Address,
@@ -213,7 +219,7 @@ func UpdatePortfolio(ctx context.Context, id string, in PortfolioInput) (*AdminP
 		if _, err := tx.Model("portfolio").Ctx(ctx).Where("id", row.Id).Data(data).Update(); err != nil {
 			return err
 		}
-		if in.Renders != nil || in.Reals != nil {
+		if touchGallery {
 			renders := in.Renders
 			reals := in.Reals
 			if renders == nil {
@@ -231,6 +237,20 @@ func UpdatePortfolio(ctx context.Context, id string, in PortfolioInput) (*AdminP
 	if err != nil {
 		return nil, err
 	}
+	deleteReplacedDualsBestEffort(ctx, []DualURL{oldCover}, []DualURL{in.Cover})
+	if touchGallery {
+		renders := in.Renders
+		reals := in.Reals
+		if renders == nil {
+			renders = oldRenders
+		}
+		if reals == nil {
+			reals = oldReals
+		}
+		oldURLs := collectDualURLLists(oldRenders, oldReals)
+		newURLs := collectDualURLLists(renders, reals)
+		deleteOSSURLsBestEffort(ctx, urlsNotIn(oldURLs, newURLs))
+	}
 	return GetPortfolioAdmin(ctx, fmt.Sprintf("%d", row.Id))
 }
 
@@ -240,8 +260,17 @@ func DeletePortfolio(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	_, err = g.DB().Model("portfolio").Ctx(ctx).Where("id", row.Id).Delete()
-	return err
+	renders, reals, err := loadGallery(ctx, row.Id)
+	if err != nil {
+		return err
+	}
+	urls := collectDualURLs(nil, DualURL{Thumb: row.CoverThumbUrl, Original: row.CoverOriginalUrl})
+	urls = append(urls, collectDualURLLists(renders, reals)...)
+	if _, err = g.DB().Model("portfolio").Ctx(ctx).Where("id", row.Id).Delete(); err != nil {
+		return err
+	}
+	deleteOSSURLsBestEffort(ctx, urls)
+	return nil
 }
 
 // ReorderPortfolios sets sort_order by ordered slug/id list.
@@ -266,12 +295,19 @@ func SavePortfolioGallery(ctx context.Context, id string, renders, reals []DualU
 	if err != nil {
 		return nil, err
 	}
+	oldRenders, oldReals, err := loadGallery(ctx, row.Id)
+	if err != nil {
+		return nil, err
+	}
 	err = g.DB().Transaction(ctx, func(ctx context.Context, tx gdb.TX) error {
 		return replaceGalleryTx(ctx, tx, row.Id, renders, reals)
 	})
 	if err != nil {
 		return nil, err
 	}
+	oldURLs := collectDualURLLists(oldRenders, oldReals)
+	newURLs := collectDualURLLists(renders, reals)
+	deleteOSSURLsBestEffort(ctx, urlsNotIn(oldURLs, newURLs))
 	return GetPortfolioAdmin(ctx, fmt.Sprintf("%d", row.Id))
 }
 

@@ -67,6 +67,13 @@ func UpdateCompany(ctx context.Context, in UpdateCompanyInput) (*CompanyView, er
 	}
 	var existing entity.Company
 	_ = g.DB().Model("company").Ctx(ctx).OrderAsc("id").Limit(1).Scan(&existing)
+	var oldLogos []DualURL
+	if existing.Id != 0 {
+		oldLogos = []DualURL{
+			{Thumb: existing.LogoThumbUrl, Original: existing.LogoOriginalUrl},
+			{Thumb: existing.LogoHorThumbUrl, Original: existing.LogoHorOriginalUrl},
+		}
+	}
 	if existing.Id == 0 {
 		if _, err := g.DB().Model("company").Ctx(ctx).Data(data).InsertAndGetId(); err != nil {
 			return nil, err
@@ -75,6 +82,7 @@ func UpdateCompany(ctx context.Context, in UpdateCompanyInput) (*CompanyView, er
 		if _, err := g.DB().Model("company").Ctx(ctx).Where("id", existing.Id).Data(data).Update(); err != nil {
 			return nil, err
 		}
+		deleteReplacedDualsBestEffort(ctx, oldLogos, []DualURL{in.Logo, in.LogoHor})
 	}
 	return GetCompany(ctx)
 }
