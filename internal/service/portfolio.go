@@ -63,10 +63,42 @@ type PortfolioInput struct {
 	Reals     []DualURL `json:"reals"`
 }
 
-// ListPortfoliosPublic returns portfolios ordered by sort_order.
-func ListPortfoliosPublic(ctx context.Context) ([]PortfolioListItem, error) {
+// PortfolioListPage is a paginated public portfolio list.
+type PortfolioListPage struct {
+	List     []PortfolioListItem
+	Total    int
+	Page     int
+	PageSize int
+}
+
+const (
+	defaultPortfolioPageSize = 10
+	maxPortfolioPageSize     = 50
+)
+
+// NormalizePortfolioPage clamps page (≥1) and pageSize (default 10, max 50).
+func NormalizePortfolioPage(page, pageSize int) (int, int) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = defaultPortfolioPageSize
+	}
+	if pageSize > maxPortfolioPageSize {
+		pageSize = maxPortfolioPageSize
+	}
+	return page, pageSize
+}
+
+// ListPortfoliosPublic returns a page of portfolios ordered by sort_order.
+func ListPortfoliosPublic(ctx context.Context, page, pageSize int) (*PortfolioListPage, error) {
+	page, pageSize = NormalizePortfolioPage(page, pageSize)
+	total, err := g.DB().Model("portfolio").Ctx(ctx).Count()
+	if err != nil {
+		return nil, err
+	}
 	var rows []entity.Portfolio
-	if err := g.DB().Model("portfolio").Ctx(ctx).OrderAsc("sort_order").OrderAsc("id").Scan(&rows); err != nil {
+	if err := g.DB().Model("portfolio").Ctx(ctx).OrderAsc("sort_order").OrderAsc("id").Page(page, pageSize).Scan(&rows); err != nil {
 		return nil, err
 	}
 	out := make([]PortfolioListItem, 0, len(rows))
@@ -80,7 +112,12 @@ func ListPortfoliosPublic(ctx context.Context) ([]PortfolioListItem, error) {
 			Style:         r.Style,
 		})
 	}
-	return out, nil
+	return &PortfolioListPage{
+		List:     out,
+		Total:    total,
+		Page:     page,
+		PageSize: pageSize,
+	}, nil
 }
 
 // GetPortfolioPublic returns detail by slug (public id).

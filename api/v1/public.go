@@ -15,11 +15,16 @@ type GetCompanyRes struct {
 }
 
 type ListPortfoliosReq struct {
-	g.Meta `path:"/portfolios" tags:"Public" method:"get" summary:"List portfolios"`
+	g.Meta   `path:"/portfolios" tags:"Public" method:"get" summary:"List portfolios"`
+	Page     int `json:"page" in:"query" d:"1" dc:"Page number (1-based)"`
+	PageSize int `json:"pageSize" in:"query" d:"10" dc:"Items per page (max 50)"`
 }
 
 type ListPortfoliosRes struct {
-	List []service.PortfolioListItem `json:"list"`
+	List     []service.PortfolioListItem `json:"list"`
+	Total    int                         `json:"total"`
+	Page     int                         `json:"page"`
+	PageSize int                         `json:"pageSize"`
 }
 
 type GetPortfolioReq struct {

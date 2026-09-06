@@ -22,14 +22,20 @@ func (c *Controller) GetCompany(ctx context.Context, req *v1.GetCompanyReq) (res
 }
 
 func (c *Controller) ListPortfolios(ctx context.Context, req *v1.ListPortfoliosReq) (res *v1.ListPortfoliosRes, err error) {
-	list, err := service.ListPortfoliosPublic(ctx)
+	paged, err := service.ListPortfoliosPublic(ctx, req.Page, req.PageSize)
 	if err != nil {
 		return nil, err
 	}
+	list := paged.List
 	if list == nil {
 		list = []service.PortfolioListItem{}
 	}
-	return &v1.ListPortfoliosRes{List: list}, nil
+	return &v1.ListPortfoliosRes{
+		List:     list,
+		Total:    paged.Total,
+		Page:     paged.Page,
+		PageSize: paged.PageSize,
+	}, nil
 }
 
 func (c *Controller) GetPortfolio(ctx context.Context, req *v1.GetPortfolioReq) (res *v1.GetPortfolioRes, err error) {
