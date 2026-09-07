@@ -10,7 +10,7 @@
       </div>
 
       <nav class="nav">
-        <router-link to="/company">公司资料</router-link>
+        <router-link to="/company">公司简介</router-link>
         <router-link to="/portfolios/residential">住宅作品集</router-link>
         <router-link to="/portfolios/commercial">商业作品集</router-link>
         <router-link to="/portfolios/office">办公作品集</router-link>

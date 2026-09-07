@@ -10,6 +10,7 @@ type Activity struct {
 	ImageOriginalUrl string    `json:"imageOriginalUrl" orm:"image_original_url"`
 	ImageThumbUrl    string    `json:"imageThumbUrl"    orm:"image_thumb_url"`
 	SortOrder        int       `json:"sortOrder"        orm:"sort_order"`
+	ViewCount        int       `json:"viewCount"        orm:"view_count"`
 	CreatedAt        time.Time `json:"createdAt"        orm:"created_at"`
 	UpdatedAt        time.Time `json:"updatedAt"        orm:"updated_at"`
 }

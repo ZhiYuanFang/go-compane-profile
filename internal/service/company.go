@@ -5,6 +5,8 @@ import (
 
 	"go-compane-profile/internal/model/entity"
 
+	"github.com/gogf/gf/v2/errors/gcode"
+	"github.com/gogf/gf/v2/errors/gerror"
 	"github.com/gogf/gf/v2/frame/g"
 )
 
@@ -16,16 +18,17 @@ type DualURL struct {
 
 // CompanyView is the public/admin company payload.
 type CompanyView struct {
-	IntroTitle string  `json:"introTitle"`
-	IntroBody  string  `json:"introBody"`
-	Values     string  `json:"values"`
-	YearsLabel string  `json:"yearsLabel"`
-	Address    string  `json:"address"`
-	Awards     string  `json:"awards"`
-	Phone      string  `json:"phone"`
-	Wechat     string  `json:"wechat"`
-	Logo       DualURL `json:"logo"`
-	LogoHor    DualURL `json:"logoHor"`
+	IntroTitle     string  `json:"introTitle"`
+	IntroBody      string  `json:"introBody"`
+	Values         string  `json:"values"`
+	YearsLabel     string  `json:"yearsLabel"`
+	Address        string  `json:"address"`
+	Awards         string  `json:"awards"`
+	Phone          string  `json:"phone"`
+	Wechat         string  `json:"wechat"`
+	Logo           DualURL `json:"logo"`
+	LogoHor        DualURL `json:"logoHor"`
+	AboutViewCount int     `json:"aboutViewCount"`
 }
 
 // GetCompany returns the singleton company profile.
@@ -114,5 +117,20 @@ func companyToView(row *entity.Company) *CompanyView {
 			Thumb:    row.LogoHorThumbUrl,
 			Original: row.LogoHorOriginalUrl,
 		},
+		AboutViewCount: row.AboutViewCount,
 	}
+}
+
+// IncrementAboutView atomically increments company.about_view_count.
+func IncrementAboutView(ctx context.Context) error {
+	var row entity.Company
+	err := g.DB().Model("company").Ctx(ctx).OrderAsc("id").Limit(1).Scan(&row)
+	if err != nil {
+		return err
+	}
+	if row.Id == 0 {
+		return gerror.NewCode(gcode.CodeNotFound, "公司资料不存在")
+	}
+	_, err = g.DB().Model("company").Ctx(ctx).Where("id", row.Id).Data("about_view_count=about_view_count+1").Update()
+	return err
 }

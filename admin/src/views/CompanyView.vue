@@ -6,6 +6,10 @@
     <div v-if="loadError" class="alert alert-error">{{ loadError }}</div>
     <div v-if="message" class="alert" :class="messageOk ? 'alert-ok' : 'alert-error'">{{ message }}</div>
 
+    <div v-if="!loading" class="glass-panel about-views">
+      查阅关于我们次数为 {{ aboutViewCount }}
+    </div>
+
     <form v-if="!loading" class="glass-panel form" @submit.prevent="onSubmit">
       <div class="field">
         <label for="introTitle">简介标题</label>
@@ -75,6 +79,7 @@ const saving = ref(false)
 const loadError = ref('')
 const message = ref('')
 const messageOk = ref(false)
+const aboutViewCount = ref(0)
 
 const form = reactive({
   introTitle: '',
@@ -108,6 +113,9 @@ function applyCompany(data) {
   form.wechat = data?.wechat || ''
   form.logo = emptyDual(data?.logo)
   form.logoHor = emptyDual(data?.logoHor)
+  if (typeof data?.aboutViewCount === 'number') {
+    aboutViewCount.value = data.aboutViewCount
+  }
 }
 
 onMounted(async () => {
@@ -155,5 +163,11 @@ async function onSubmit() {
 <style scoped>
 .form {
   padding: 1.35rem;
+}
+
+.about-views {
+  padding: 0.95rem 1.2rem;
+  margin-bottom: 1rem;
+  font-size: 0.95rem;
 }
 </style>

@@ -44,6 +44,7 @@ type AdminPortfolio struct {
 	Slug      string    `json:"slug"`
 	Category  string    `json:"category"`
 	SortOrder int       `json:"sortOrder"`
+	ViewCount int       `json:"viewCount"`
 	Address   string    `json:"address"`
 	Area      string    `json:"area"`
 	Style     string    `json:"style"`
@@ -425,6 +426,16 @@ func findPortfolioBySlugOrID(ctx context.Context, id string) (*entity.Portfolio,
 	return findPortfolioBySlugOrIDTx(ctx, g.DB(), id)
 }
 
+// IncrementPortfolioView atomically increments view_count for a portfolio.
+func IncrementPortfolioView(ctx context.Context, id string) error {
+	row, err := findPortfolioBySlugOrID(ctx, id)
+	if err != nil {
+		return err
+	}
+	_, err = g.DB().Model("portfolio").Ctx(ctx).Where("id", row.Id).Data("view_count=view_count+1").Update()
+	return err
+}
+
 func findPortfolioBySlugOrIDTx(ctx context.Context, db dbQuerier, id string) (*entity.Portfolio, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
@@ -455,6 +466,7 @@ func toAdminPortfolioTx(ctx context.Context, db dbQuerier, row *entity.Portfolio
 		Slug:      row.Slug,
 		Category:  row.Category,
 		SortOrder: row.SortOrder,
+		ViewCount: row.ViewCount,
 		Address:   row.Address,
 		Area:      row.Area,
 		Style:     row.Style,

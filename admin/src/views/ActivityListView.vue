@@ -21,6 +21,7 @@
         </div>
         <div class="meta">
           <div class="title">{{ item.title || `活动 #${item.id}` }}</div>
+          <div class="sub muted">热度 {{ item.viewCount ?? 0 }}</div>
         </div>
         <div class="order">
           <button type="button" class="btn btn-sm btn-ghost" :disabled="index === 0" @click="move(index, -1)">
@@ -157,6 +158,11 @@ onMounted(load)
 
 .title {
   font-weight: 560;
+}
+
+.sub {
+  font-size: 0.85rem;
+  margin-top: 0.2rem;
 }
 
 .order,

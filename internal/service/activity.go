@@ -16,9 +16,10 @@ import (
 
 // ActivityListItem is a public/admin list card.
 type ActivityListItem struct {
-	Id    uint64  `json:"id"`
-	Title string  `json:"title"`
-	Image DualURL `json:"image"`
+	Id        uint64  `json:"id"`
+	Title     string  `json:"title"`
+	ViewCount int     `json:"viewCount"`
+	Image     DualURL `json:"image"`
 }
 
 // ActivityDetail is public/admin detail payload.
@@ -57,9 +58,10 @@ func ListActivities(ctx context.Context) ([]ActivityListItem, error) {
 	out := make([]ActivityListItem, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, ActivityListItem{
-			Id:    r.Id,
-			Title: r.Title,
-			Image: DualURL{Thumb: r.ImageThumbUrl, Original: r.ImageOriginalUrl},
+			Id:        r.Id,
+			Title:     r.Title,
+			ViewCount: r.ViewCount,
+			Image:     DualURL{Thumb: r.ImageThumbUrl, Original: r.ImageOriginalUrl},
 		})
 	}
 	return out, nil
@@ -171,6 +173,16 @@ func ReorderActivities(ctx context.Context, ids []string) error {
 
 func findActivityByID(ctx context.Context, id string) (*entity.Activity, error) {
 	return findActivityByIDTx(ctx, g.DB(), id)
+}
+
+// IncrementActivityView atomically increments view_count for an activity.
+func IncrementActivityView(ctx context.Context, id string) error {
+	row, err := findActivityByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	_, err = g.DB().Model("activity").Ctx(ctx).Where("id", row.Id).Data("view_count=view_count+1").Update()
+	return err
 }
 
 func findActivityByIDTx(ctx context.Context, db dbQuerier, id string) (*entity.Activity, error) {

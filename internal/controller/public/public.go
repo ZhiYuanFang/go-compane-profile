@@ -64,3 +64,24 @@ func (c *Controller) GetActivity(ctx context.Context, req *v1.GetActivityReq) (r
 	}
 	return &v1.GetActivityRes{ActivityDetail: detail}, nil
 }
+
+func (c *Controller) ViewPortfolio(ctx context.Context, req *v1.ViewPortfolioReq) (res *v1.ViewPortfolioRes, err error) {
+	if err := service.IncrementPortfolioView(ctx, req.Id); err != nil {
+		return nil, err
+	}
+	return &v1.ViewPortfolioRes{}, nil
+}
+
+func (c *Controller) ViewActivity(ctx context.Context, req *v1.ViewActivityReq) (res *v1.ViewActivityRes, err error) {
+	if err := service.IncrementActivityView(ctx, req.Id); err != nil {
+		return nil, err
+	}
+	return &v1.ViewActivityRes{}, nil
+}
+
+func (c *Controller) ViewAbout(ctx context.Context, req *v1.ViewAboutReq) (res *v1.ViewAboutRes, err error) {
+	if err := service.IncrementAboutView(ctx); err != nil {
+		return nil, err
+	}
+	return &v1.ViewAboutRes{}, nil
+}

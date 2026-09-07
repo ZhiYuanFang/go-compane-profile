@@ -14,6 +14,7 @@ type Portfolio struct {
 	HeartFlow        string    `json:"heartFlow"        orm:"heart_flow"`
 	CoverOriginalUrl string    `json:"coverOriginalUrl" orm:"cover_original_url"`
 	CoverThumbUrl    string    `json:"coverThumbUrl"    orm:"cover_thumb_url"`
+	ViewCount        int       `json:"viewCount"        orm:"view_count"`
 	CreatedAt        time.Time `json:"createdAt"        orm:"created_at"`
 	UpdatedAt        time.Time `json:"updatedAt"        orm:"updated_at"`
 }

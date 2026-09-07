@@ -17,6 +17,7 @@ type Company struct {
 	LogoThumbUrl       string    `json:"logoThumbUrl"       orm:"logo_thumb_url"`
 	LogoHorOriginalUrl string    `json:"logoHorOriginalUrl" orm:"logo_hor_original_url"`
 	LogoHorThumbUrl    string    `json:"logoHorThumbUrl"    orm:"logo_hor_thumb_url"`
+	AboutViewCount     int       `json:"aboutViewCount"     orm:"about_view_count"`
 	UpdatedAt          time.Time `json:"updatedAt"          orm:"updated_at"`
 }
 

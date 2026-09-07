@@ -25,7 +25,8 @@
         <div class="meta">
           <div class="title">{{ item.address || item.slug || `作品 #${item.id}` }}</div>
           <div class="sub muted">
-            <span v-if="item.slug">{{ item.slug }}</span>
+            <span>热度 {{ item.viewCount ?? 0 }}</span>
+            <span v-if="item.slug"> · {{ item.slug }}</span>
             <span v-if="item.area"> · {{ item.area }}</span>
             <span v-if="item.style"> · {{ item.style }}</span>
           </div>

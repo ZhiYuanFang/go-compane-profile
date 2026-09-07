@@ -53,3 +53,23 @@ type GetActivityReq struct {
 type GetActivityRes struct {
 	*service.ActivityDetail
 }
+
+type ViewPortfolioReq struct {
+	g.Meta `path:"/portfolios/{id}/view" tags:"Public" method:"post" summary:"Increment portfolio view count"`
+	Id     string `json:"id" v:"required#作品 id 不能为空" in:"path"`
+}
+
+type ViewPortfolioRes struct{}
+
+type ViewActivityReq struct {
+	g.Meta `path:"/activities/{id}/view" tags:"Public" method:"post" summary:"Increment activity view count"`
+	Id     string `json:"id" v:"required#活动 id 不能为空" in:"path"`
+}
+
+type ViewActivityRes struct{}
+
+type ViewAboutReq struct {
+	g.Meta `path:"/company/about/view" tags:"Public" method:"post" summary:"Increment about-us view count"`
+}
+
+type ViewAboutRes struct{}
