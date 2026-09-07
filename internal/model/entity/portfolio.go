@@ -1,4 +1,4 @@
-package entity
+﻿package entity
 
 import "time"
 
@@ -6,6 +6,7 @@ import "time"
 type Portfolio struct {
 	Id               uint64    `json:"id"               orm:"id,primary"`
 	Slug             string    `json:"slug"             orm:"slug"`
+	Category         string    `json:"category"         orm:"category"`
 	SortOrder        int       `json:"sortOrder"        orm:"sort_order"`
 	Address          string    `json:"address"          orm:"address"`
 	Area             string    `json:"area"             orm:"area"`

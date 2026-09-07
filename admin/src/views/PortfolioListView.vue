@@ -2,10 +2,10 @@
   <section>
     <div class="header">
       <div>
-        <h1 class="page-title">作品集</h1>
-        <p class="page-sub">管理作品顺序与内容</p>
+        <h1 class="page-title">{{ title }}作品集</h1>
+        <p class="page-sub">管理本类作品顺序与内容</p>
       </div>
-      <router-link class="btn btn-primary" to="/portfolios/new">新建作品</router-link>
+      <router-link class="btn btn-primary" :to="`/portfolios/${category}/new`">新建作品</router-link>
     </div>
 
     <div v-if="error" class="alert alert-error">{{ error }}</div>
@@ -54,7 +54,7 @@
         </div>
 
         <div class="actions">
-          <router-link class="btn btn-sm" :to="`/portfolios/${item.id}`">编辑</router-link>
+          <router-link class="btn btn-sm" :to="`/portfolios/${category}/${item.id}`">编辑</router-link>
           <button type="button" class="btn btn-sm btn-danger" @click="onDelete(item)">删除</button>
         </div>
       </li>
@@ -63,8 +63,14 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { deletePortfolio, listPortfolios, reorderPortfolios } from '@/api/client'
+import { categoryLabel } from '@/constants/portfolioCategories'
+
+const route = useRoute()
+const category = computed(() => route.params.category)
+const title = computed(() => categoryLabel(category.value))
 
 const items = ref([])
 const loading = ref(true)
@@ -83,7 +89,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const data = await listPortfolios()
+    const data = await listPortfolios(category.value)
     items.value = Array.isArray(data) ? data : data?.list || data?.items || []
   } catch (err) {
     error.value = err.message || '加载失败'
@@ -97,8 +103,8 @@ async function persistOrder() {
   message.value = ''
   try {
     await reorderPortfolios({
+      category: category.value,
       ids: items.value.map((x) => x.id),
-      items: items.value.map((x, i) => ({ id: x.id, sortOrder: i + 1 })),
     })
     message.value = '顺序已更新'
   } catch (err) {
@@ -146,6 +152,7 @@ async function onDelete(item) {
   }
 }
 
+watch(category, load)
 onMounted(load)
 </script>
 

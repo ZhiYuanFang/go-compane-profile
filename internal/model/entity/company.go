@@ -10,6 +10,9 @@ type Company struct {
 	Values             string    `json:"values"             orm:"design_values"`
 	YearsLabel         string    `json:"yearsLabel"         orm:"years_label"`
 	Address            string    `json:"address"            orm:"address"`
+	Awards             string    `json:"awards"             orm:"awards"`
+	Phone              string    `json:"phone"              orm:"phone"`
+	Wechat             string    `json:"wechat"             orm:"wechat"`
 	LogoOriginalUrl    string    `json:"logoOriginalUrl"    orm:"logo_original_url"`
 	LogoThumbUrl       string    `json:"logoThumbUrl"       orm:"logo_thumb_url"`
 	LogoHorOriginalUrl string    `json:"logoHorOriginalUrl" orm:"logo_hor_original_url"`

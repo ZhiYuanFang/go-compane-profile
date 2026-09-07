@@ -4,15 +4,18 @@
       <div class="brand">
         <div class="brand-mark">M</div>
         <div>
-          <div class="brand-name">目后空间</div>
+          <div class="brand-name">温州目后空间设计有限公司</div>
           <div class="brand-sub">Admin CMS</div>
         </div>
       </div>
 
       <nav class="nav">
         <router-link to="/company">公司资料</router-link>
-        <router-link to="/portfolios">作品集</router-link>
-        <router-link to="/pricing">资费</router-link>
+        <router-link to="/portfolios/residential">住宅作品集</router-link>
+        <router-link to="/portfolios/commercial">商业作品集</router-link>
+        <router-link to="/portfolios/office">办公作品集</router-link>
+        <router-link to="/portfolios/installation">装置作品集</router-link>
+        <router-link to="/activities">活动</router-link>
       </nav>
 
       <button type="button" class="btn btn-ghost logout" :disabled="loggingOut" @click="onLogout">

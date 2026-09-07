@@ -17,6 +17,7 @@ import (
 // PortfolioListItem is a public list card.
 type PortfolioListItem struct {
 	Id            string `json:"id"`
+	Category      string `json:"category"`
 	Cover         string `json:"cover"`
 	CoverOriginal string `json:"coverOriginal"`
 	Address       string `json:"address"`
@@ -27,6 +28,7 @@ type PortfolioListItem struct {
 // PortfolioDetail is public detail payload.
 type PortfolioDetail struct {
 	Id        string    `json:"id"`
+	Category  string    `json:"category"`
 	Address   string    `json:"address"`
 	Area      string    `json:"area"`
 	Style     string    `json:"style"`
@@ -40,6 +42,7 @@ type PortfolioDetail struct {
 type AdminPortfolio struct {
 	Id        uint64    `json:"id"`
 	Slug      string    `json:"slug"`
+	Category  string    `json:"category"`
 	SortOrder int       `json:"sortOrder"`
 	Address   string    `json:"address"`
 	Area      string    `json:"area"`
@@ -53,6 +56,7 @@ type AdminPortfolio struct {
 // PortfolioInput is create/update body.
 type PortfolioInput struct {
 	Slug      string    `json:"slug"`
+	Category  string    `json:"category"`
 	SortOrder *int      `json:"sortOrder"`
 	Address   string    `json:"address"`
 	Area      string    `json:"area"`
@@ -91,20 +95,34 @@ func NormalizePortfolioPage(page, pageSize int) (int, int) {
 }
 
 // ListPortfoliosPublic returns a page of portfolios ordered by sort_order.
-func ListPortfoliosPublic(ctx context.Context, page, pageSize int) (*PortfolioListPage, error) {
+// category may be empty (all) or a valid category filter.
+func ListPortfoliosPublic(ctx context.Context, page, pageSize int, category string) (*PortfolioListPage, error) {
 	page, pageSize = NormalizePortfolioPage(page, pageSize)
-	total, err := g.DB().Model("portfolio").Ctx(ctx).Count()
+	cat, err := NormalizePortfolioCategory(category, true)
 	if err != nil {
 		return nil, err
 	}
+	m := g.DB().Model("portfolio").Ctx(ctx)
+	if cat != "" {
+		m = m.Where("category", cat)
+	}
+	total, err := m.Count()
+	if err != nil {
+		return nil, err
+	}
+	q := g.DB().Model("portfolio").Ctx(ctx)
+	if cat != "" {
+		q = q.Where("category", cat)
+	}
 	var rows []entity.Portfolio
-	if err := g.DB().Model("portfolio").Ctx(ctx).OrderAsc("sort_order").OrderAsc("id").Page(page, pageSize).Scan(&rows); err != nil {
+	if err := q.OrderAsc("sort_order").OrderAsc("id").Page(page, pageSize).Scan(&rows); err != nil {
 		return nil, err
 	}
 	out := make([]PortfolioListItem, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, PortfolioListItem{
 			Id:            r.Slug,
+			Category:      r.Category,
 			Cover:         r.CoverThumbUrl,
 			CoverOriginal: r.CoverOriginalUrl,
 			Address:       r.Address,
@@ -132,6 +150,7 @@ func GetPortfolioPublic(ctx context.Context, id string) (*PortfolioDetail, error
 	}
 	return &PortfolioDetail{
 		Id:        row.Slug,
+		Category:  row.Category,
 		Address:   row.Address,
 		Area:      row.Area,
 		Style:     row.Style,
@@ -145,10 +164,14 @@ func GetPortfolioPublic(ctx context.Context, id string) (*PortfolioDetail, error
 	}, nil
 }
 
-// ListPortfoliosAdmin returns all portfolios with galleries.
-func ListPortfoliosAdmin(ctx context.Context) ([]AdminPortfolio, error) {
+// ListPortfoliosAdmin returns portfolios in a category with galleries.
+func ListPortfoliosAdmin(ctx context.Context, category string) ([]AdminPortfolio, error) {
+	cat, err := NormalizePortfolioCategory(category, false)
+	if err != nil {
+		return nil, err
+	}
 	var rows []entity.Portfolio
-	if err := g.DB().Model("portfolio").Ctx(ctx).OrderAsc("sort_order").OrderAsc("id").Scan(&rows); err != nil {
+	if err := g.DB().Model("portfolio").Ctx(ctx).Where("category", cat).OrderAsc("sort_order").OrderAsc("id").Scan(&rows); err != nil {
 		return nil, err
 	}
 	out := make([]AdminPortfolio, 0, len(rows))
@@ -173,19 +196,24 @@ func GetPortfolioAdmin(ctx context.Context, id string) (*AdminPortfolio, error) 
 
 // CreatePortfolio inserts a portfolio; auto-generates slug when empty.
 func CreatePortfolio(ctx context.Context, in PortfolioInput) (*AdminPortfolio, error) {
+	cat, err := NormalizePortfolioCategory(in.Category, false)
+	if err != nil {
+		return nil, err
+	}
 	var created *AdminPortfolio
-	err := g.DB().Transaction(ctx, func(ctx context.Context, tx gdb.TX) error {
+	err = g.DB().Transaction(ctx, func(ctx context.Context, tx gdb.TX) error {
 		sortOrder := 0
 		if in.SortOrder != nil {
 			sortOrder = *in.SortOrder
 		} else {
-			val, err := tx.Model("portfolio").Ctx(ctx).Max("sort_order")
+			val, err := tx.Model("portfolio").Ctx(ctx).Where("category", cat).Max("sort_order")
 			if err != nil {
 				return err
 			}
 			sortOrder = int(val) + 1
 		}
 		data := g.Map{
+			"category":           cat,
 			"sort_order":         sortOrder,
 			"address":            in.Address,
 			"area":               in.Area,
@@ -232,12 +260,20 @@ func UpdatePortfolio(ctx context.Context, id string, in PortfolioInput) (*AdminP
 	if err != nil {
 		return nil, err
 	}
+	newCat := row.Category
+	if strings.TrimSpace(in.Category) != "" {
+		newCat, err = NormalizePortfolioCategory(in.Category, false)
+		if err != nil {
+			return nil, err
+		}
+	}
 	oldCover := DualURL{Thumb: row.CoverThumbUrl, Original: row.CoverOriginalUrl}
 	oldRenders, oldReals, err := loadGallery(ctx, row.Id)
 	if err != nil {
 		return nil, err
 	}
 	touchGallery := in.Renders != nil || in.Reals != nil
+	categoryChanged := newCat != row.Category
 	err = g.DB().Transaction(ctx, func(ctx context.Context, tx gdb.TX) error {
 		data := g.Map{
 			"address":            in.Address,
@@ -250,11 +286,23 @@ func UpdatePortfolio(ctx context.Context, id string, in PortfolioInput) (*AdminP
 		if slug := strings.TrimSpace(in.Slug); slug != "" {
 			data["slug"] = slug
 		}
-		if in.SortOrder != nil {
+		if categoryChanged {
+			data["category"] = newCat
+			val, err := tx.Model("portfolio").Ctx(ctx).Where("category", newCat).Max("sort_order")
+			if err != nil {
+				return err
+			}
+			data["sort_order"] = int(val) + 1
+		} else if in.SortOrder != nil {
 			data["sort_order"] = *in.SortOrder
 		}
 		if _, err := tx.Model("portfolio").Ctx(ctx).Where("id", row.Id).Data(data).Update(); err != nil {
 			return err
+		}
+		if categoryChanged {
+			if err := resequenceCategoryTx(ctx, tx, row.Category); err != nil {
+				return err
+			}
 		}
 		if touchGallery {
 			renders := in.Renders
@@ -310,13 +358,20 @@ func DeletePortfolio(ctx context.Context, id string) error {
 	return nil
 }
 
-// ReorderPortfolios sets sort_order by ordered slug/id list.
-func ReorderPortfolios(ctx context.Context, ids []string) error {
+// ReorderPortfolios sets sort_order by ordered slug/id list within a category.
+func ReorderPortfolios(ctx context.Context, category string, ids []string) error {
+	cat, err := NormalizePortfolioCategory(category, false)
+	if err != nil {
+		return err
+	}
 	return g.DB().Transaction(ctx, func(ctx context.Context, tx gdb.TX) error {
 		for i, id := range ids {
 			row, err := findPortfolioBySlugOrIDTx(ctx, tx, id)
 			if err != nil {
 				return err
+			}
+			if row.Category != cat {
+				return gerror.NewCode(gcode.CodeInvalidParameter, "作品不属于该类")
 			}
 			if _, err := tx.Model("portfolio").Ctx(ctx).Where("id", row.Id).Data(g.Map{"sort_order": i}).Update(); err != nil {
 				return err
@@ -324,6 +379,19 @@ func ReorderPortfolios(ctx context.Context, ids []string) error {
 		}
 		return nil
 	})
+}
+
+func resequenceCategoryTx(ctx context.Context, tx gdb.TX, category string) error {
+	var rows []entity.Portfolio
+	if err := tx.Model("portfolio").Ctx(ctx).Where("category", category).OrderAsc("sort_order").OrderAsc("id").Scan(&rows); err != nil {
+		return err
+	}
+	for i, r := range rows {
+		if _, err := tx.Model("portfolio").Ctx(ctx).Where("id", r.Id).Data(g.Map{"sort_order": i}).Update(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // SavePortfolioGallery replaces renders/reals for a portfolio.
@@ -385,6 +453,7 @@ func toAdminPortfolioTx(ctx context.Context, db dbQuerier, row *entity.Portfolio
 	return &AdminPortfolio{
 		Id:        row.Id,
 		Slug:      row.Slug,
+		Category:  row.Category,
 		SortOrder: row.SortOrder,
 		Address:   row.Address,
 		Area:      row.Area,

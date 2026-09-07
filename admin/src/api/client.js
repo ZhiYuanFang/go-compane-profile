@@ -71,8 +71,9 @@ export function putCompany(payload) {
   return request('/admin/api/company', { method: 'PUT', body: payload })
 }
 
-export function listPortfolios() {
-  return request('/admin/api/portfolios')
+export function listPortfolios(category) {
+  const q = new URLSearchParams({ category })
+  return request(`/admin/api/portfolios?${q}`)
 }
 
 export function getPortfolio(id) {
@@ -102,16 +103,36 @@ export function reorderPortfolios(payload) {
   const ids = (payload?.ids || []).map((id) => String(id))
   return request('/admin/api/portfolios/reorder', {
     method: 'POST',
-    body: { ids },
+    body: { category: payload.category, ids },
   })
 }
 
-export function getPricing() {
-  return request('/admin/api/pricing')
+export function listActivities() {
+  return request('/admin/api/activities')
 }
 
-export function putPricing(payload) {
-  return request('/admin/api/pricing', { method: 'PUT', body: payload })
+export function getActivity(id) {
+  return request(`/admin/api/activities/${id}`)
+}
+
+export function createActivity(payload) {
+  return request('/admin/api/activities', { method: 'POST', body: payload })
+}
+
+export function updateActivity(id, payload) {
+  return request(`/admin/api/activities/${id}`, { method: 'PUT', body: payload })
+}
+
+export function deleteActivity(id) {
+  return request(`/admin/api/activities/${id}`, { method: 'DELETE' })
+}
+
+export function reorderActivities(payload) {
+  const ids = (payload?.ids || []).map((id) => String(id))
+  return request('/admin/api/activities/reorder', {
+    method: 'POST',
+    body: { ids },
+  })
 }
 
 export async function uploadDualImage({ original, thumb, category }) {

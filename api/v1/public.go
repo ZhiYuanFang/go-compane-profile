@@ -16,8 +16,9 @@ type GetCompanyRes struct {
 
 type ListPortfoliosReq struct {
 	g.Meta   `path:"/portfolios" tags:"Public" method:"get" summary:"List portfolios"`
-	Page     int `json:"page" in:"query" d:"1" dc:"Page number (1-based)"`
-	PageSize int `json:"pageSize" in:"query" d:"10" dc:"Items per page (max 50)"`
+	Page     int    `json:"page" in:"query" d:"1" dc:"Page number (1-based)"`
+	PageSize int    `json:"pageSize" in:"query" d:"10" dc:"Items per page (max 50)"`
+	Category string `json:"category" in:"query" dc:"Optional category filter; omit for all"`
 }
 
 type ListPortfoliosRes struct {
@@ -36,10 +37,19 @@ type GetPortfolioRes struct {
 	*service.PortfolioDetail
 }
 
-type GetPricingReq struct {
-	g.Meta `path:"/pricing" tags:"Public" method:"get" summary:"Get pricing image"`
+type ListActivitiesReq struct {
+	g.Meta `path:"/activities" tags:"Public" method:"get" summary:"List activities"`
 }
 
-type GetPricingRes struct {
-	*service.DualURL
+type ListActivitiesRes struct {
+	List []service.ActivityListItem `json:"list"`
+}
+
+type GetActivityReq struct {
+	g.Meta `path:"/activities/{id}" tags:"Public" method:"get" summary:"Get activity detail"`
+	Id     string `json:"id" v:"required#活动 id 不能为空" in:"path"`
+}
+
+type GetActivityRes struct {
+	*service.ActivityDetail
 }

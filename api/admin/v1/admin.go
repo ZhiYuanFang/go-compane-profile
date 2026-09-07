@@ -41,7 +41,8 @@ type UpdateCompanyRes struct {
 }
 
 type ListPortfoliosReq struct {
-	g.Meta `path:"/portfolios" tags:"AdminPortfolio" method:"get" summary:"List portfolios (admin)"`
+	g.Meta   `path:"/portfolios" tags:"AdminPortfolio" method:"get" summary:"List portfolios (admin)"`
+	Category string `json:"category" in:"query" v:"required#类别不能为空"`
 }
 
 type ListPortfoliosRes struct {
@@ -86,8 +87,9 @@ type DeletePortfolioRes struct {
 }
 
 type ReorderPortfoliosReq struct {
-	g.Meta `path:"/portfolios/reorder" tags:"AdminPortfolio" method:"post" summary:"Reorder portfolios"`
-	Ids    []string `json:"ids" v:"required#ids 不能为空"`
+	g.Meta   `path:"/portfolios/reorder" tags:"AdminPortfolio" method:"post" summary:"Reorder portfolios"`
+	Category string   `json:"category" v:"required#类别不能为空"`
+	Ids      []string `json:"ids" v:"required#ids 不能为空"`
 }
 
 type ReorderPortfoliosRes struct {
@@ -96,7 +98,7 @@ type ReorderPortfoliosRes struct {
 
 type SaveGalleryReq struct {
 	g.Meta  `path:"/portfolios/{id}/gallery" tags:"AdminPortfolio" method:"put" summary:"Save portfolio gallery"`
-	Id      string           `json:"id" v:"required" in:"path"`
+	Id      string            `json:"id" v:"required" in:"path"`
 	Renders []service.DualURL `json:"renders"`
 	Reals   []service.DualURL `json:"reals"`
 }
@@ -105,21 +107,58 @@ type SaveGalleryRes struct {
 	*service.AdminPortfolio
 }
 
-type GetPricingReq struct {
-	g.Meta `path:"/pricing" tags:"AdminPricing" method:"get" summary:"Get pricing (admin)"`
+type ListActivitiesReq struct {
+	g.Meta `path:"/activities" tags:"AdminActivity" method:"get" summary:"List activities (admin)"`
 }
 
-type GetPricingRes struct {
-	*service.DualURL
+type ListActivitiesRes struct {
+	List []service.ActivityListItem `json:"list"`
 }
 
-type UpdatePricingReq struct {
-	g.Meta `path:"/pricing" tags:"AdminPricing" method:"put" summary:"Update pricing"`
-	service.DualURL
+type GetActivityReq struct {
+	g.Meta `path:"/activities/{id}" tags:"AdminActivity" method:"get" summary:"Get activity (admin)"`
+	Id     string `json:"id" v:"required" in:"path"`
 }
 
-type UpdatePricingRes struct {
-	*service.DualURL
+type GetActivityRes struct {
+	*service.ActivityDetail
+}
+
+type CreateActivityReq struct {
+	g.Meta `path:"/activities" tags:"AdminActivity" method:"post" summary:"Create activity"`
+	service.ActivityInput
+}
+
+type CreateActivityRes struct {
+	*service.ActivityDetail
+}
+
+type UpdateActivityReq struct {
+	g.Meta `path:"/activities/{id}" tags:"AdminActivity" method:"put" summary:"Update activity"`
+	Id     string `json:"id" v:"required" in:"path"`
+	service.ActivityInput
+}
+
+type UpdateActivityRes struct {
+	*service.ActivityDetail
+}
+
+type DeleteActivityReq struct {
+	g.Meta `path:"/activities/{id}" tags:"AdminActivity" method:"delete" summary:"Delete activity"`
+	Id     string `json:"id" v:"required" in:"path"`
+}
+
+type DeleteActivityRes struct {
+	Ok bool `json:"ok"`
+}
+
+type ReorderActivitiesReq struct {
+	g.Meta `path:"/activities/reorder" tags:"AdminActivity" method:"post" summary:"Reorder activities"`
+	Ids    []string `json:"ids" v:"required#ids 不能为空"`
+}
+
+type ReorderActivitiesRes struct {
+	Ok bool `json:"ok"`
 }
 
 type UploadReq struct {

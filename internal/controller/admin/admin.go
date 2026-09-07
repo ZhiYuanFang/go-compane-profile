@@ -65,7 +65,7 @@ func (c *Controller) UpdateCompany(ctx context.Context, req *v1.UpdateCompanyReq
 }
 
 func (c *Controller) ListPortfolios(ctx context.Context, req *v1.ListPortfoliosReq) (res *v1.ListPortfoliosRes, err error) {
-	list, err := service.ListPortfoliosAdmin(ctx)
+	list, err := service.ListPortfoliosAdmin(ctx, req.Category)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +107,7 @@ func (c *Controller) DeletePortfolio(ctx context.Context, req *v1.DeletePortfoli
 }
 
 func (c *Controller) ReorderPortfolios(ctx context.Context, req *v1.ReorderPortfoliosReq) (res *v1.ReorderPortfoliosRes, err error) {
-	if err = service.ReorderPortfolios(ctx, req.Ids); err != nil {
+	if err = service.ReorderPortfolios(ctx, req.Category, req.Ids); err != nil {
 		return nil, err
 	}
 	return &v1.ReorderPortfoliosRes{Ok: true}, nil
@@ -129,20 +129,53 @@ func (c *Controller) SaveGallery(ctx context.Context, req *v1.SaveGalleryReq) (r
 	return &v1.SaveGalleryRes{AdminPortfolio: item}, nil
 }
 
-func (c *Controller) GetPricing(ctx context.Context, req *v1.GetPricingReq) (res *v1.GetPricingRes, err error) {
-	pricing, err := service.GetPricing(ctx)
+func (c *Controller) ListActivities(ctx context.Context, req *v1.ListActivitiesReq) (res *v1.ListActivitiesRes, err error) {
+	list, err := service.ListActivities(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return &v1.GetPricingRes{DualURL: pricing}, nil
+	if list == nil {
+		list = []service.ActivityListItem{}
+	}
+	return &v1.ListActivitiesRes{List: list}, nil
 }
 
-func (c *Controller) UpdatePricing(ctx context.Context, req *v1.UpdatePricingReq) (res *v1.UpdatePricingRes, err error) {
-	pricing, err := service.UpdatePricing(ctx, req.DualURL)
+func (c *Controller) GetActivity(ctx context.Context, req *v1.GetActivityReq) (res *v1.GetActivityRes, err error) {
+	detail, err := service.GetActivity(ctx, req.Id)
 	if err != nil {
 		return nil, err
 	}
-	return &v1.UpdatePricingRes{DualURL: pricing}, nil
+	return &v1.GetActivityRes{ActivityDetail: detail}, nil
+}
+
+func (c *Controller) CreateActivity(ctx context.Context, req *v1.CreateActivityReq) (res *v1.CreateActivityRes, err error) {
+	detail, err := service.CreateActivity(ctx, req.ActivityInput)
+	if err != nil {
+		return nil, err
+	}
+	return &v1.CreateActivityRes{ActivityDetail: detail}, nil
+}
+
+func (c *Controller) UpdateActivity(ctx context.Context, req *v1.UpdateActivityReq) (res *v1.UpdateActivityRes, err error) {
+	detail, err := service.UpdateActivity(ctx, req.Id, req.ActivityInput)
+	if err != nil {
+		return nil, err
+	}
+	return &v1.UpdateActivityRes{ActivityDetail: detail}, nil
+}
+
+func (c *Controller) DeleteActivity(ctx context.Context, req *v1.DeleteActivityReq) (res *v1.DeleteActivityRes, err error) {
+	if err = service.DeleteActivity(ctx, req.Id); err != nil {
+		return nil, err
+	}
+	return &v1.DeleteActivityRes{Ok: true}, nil
+}
+
+func (c *Controller) ReorderActivities(ctx context.Context, req *v1.ReorderActivitiesReq) (res *v1.ReorderActivitiesRes, err error) {
+	if err = service.ReorderActivities(ctx, req.Ids); err != nil {
+		return nil, err
+	}
+	return &v1.ReorderActivitiesRes{Ok: true}, nil
 }
 
 func (c *Controller) Upload(ctx context.Context, req *v1.UploadReq) (res *v1.UploadRes, err error) {

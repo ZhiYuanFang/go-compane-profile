@@ -22,7 +22,7 @@ func (c *Controller) GetCompany(ctx context.Context, req *v1.GetCompanyReq) (res
 }
 
 func (c *Controller) ListPortfolios(ctx context.Context, req *v1.ListPortfoliosReq) (res *v1.ListPortfoliosRes, err error) {
-	paged, err := service.ListPortfoliosPublic(ctx, req.Page, req.PageSize)
+	paged, err := service.ListPortfoliosPublic(ctx, req.Page, req.PageSize, req.Category)
 	if err != nil {
 		return nil, err
 	}
@@ -46,10 +46,21 @@ func (c *Controller) GetPortfolio(ctx context.Context, req *v1.GetPortfolioReq) 
 	return &v1.GetPortfolioRes{PortfolioDetail: detail}, nil
 }
 
-func (c *Controller) GetPricing(ctx context.Context, req *v1.GetPricingReq) (res *v1.GetPricingRes, err error) {
-	pricing, err := service.GetPricing(ctx)
+func (c *Controller) ListActivities(ctx context.Context, req *v1.ListActivitiesReq) (res *v1.ListActivitiesRes, err error) {
+	list, err := service.ListActivities(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return &v1.GetPricingRes{DualURL: pricing}, nil
+	if list == nil {
+		list = []service.ActivityListItem{}
+	}
+	return &v1.ListActivitiesRes{List: list}, nil
+}
+
+func (c *Controller) GetActivity(ctx context.Context, req *v1.GetActivityReq) (res *v1.GetActivityRes, err error) {
+	detail, err := service.GetActivity(ctx, req.Id)
+	if err != nil {
+		return nil, err
+	}
+	return &v1.GetActivityRes{ActivityDetail: detail}, nil
 }

@@ -5,13 +5,20 @@
         <h1 class="page-title">{{ isNew ? '新建作品' : '编辑作品' }}</h1>
         <p class="page-sub">封面与效果图 / 实景图在提交时上传</p>
       </div>
-      <router-link class="btn btn-ghost" to="/portfolios">返回列表</router-link>
+      <router-link class="btn btn-ghost" :to="`/portfolios/${listCategory}`">返回列表</router-link>
     </div>
 
     <div v-if="loadError" class="alert alert-error">{{ loadError }}</div>
     <div v-if="message" class="alert" :class="messageOk ? 'alert-ok' : 'alert-error'">{{ message }}</div>
 
     <form v-if="!loading" class="glass-panel form" @submit.prevent="onSubmit">
+      <div class="field">
+        <label for="category">类别</label>
+        <select id="category" v-model="form.category">
+          <option v-for="c in categories" :key="c.value" :value="c.value">{{ c.label }}</option>
+        </select>
+      </div>
+
       <div class="field">
         <label for="address">地址 / 项目名</label>
         <input id="address" v-model="form.address" />
@@ -60,6 +67,7 @@ import {
   resolveDualImage,
   updatePortfolio,
 } from '@/api/client'
+import { PORTFOLIO_CATEGORIES } from '@/constants/portfolioCategories'
 
 function emptyDual(src) {
   return {
@@ -92,6 +100,8 @@ function zipPairs(renders, reals) {
 const route = useRoute()
 const router = useRouter()
 const isNew = computed(() => route.name === 'portfolio-new')
+const listCategory = computed(() => route.params.category)
+const categories = PORTFOLIO_CATEGORIES
 
 const loading = ref(!isNew.value)
 const saving = ref(false)
@@ -100,6 +110,7 @@ const message = ref('')
 const messageOk = ref(false)
 
 const form = reactive({
+  category: route.params.category || 'residential',
   address: '',
   area: '',
   style: '',
@@ -109,6 +120,7 @@ const form = reactive({
 })
 
 function applyPortfolio(data) {
+  form.category = data?.category || route.params.category || 'residential'
   form.address = data?.address || ''
   form.area = data?.area || ''
   form.style = data?.style || ''
@@ -119,6 +131,7 @@ function applyPortfolio(data) {
 
 onMounted(async () => {
   if (isNew.value) {
+    form.category = route.params.category || 'residential'
     loading.value = false
     return
   }
@@ -137,9 +150,6 @@ async function resolvePairs(pairs) {
   const reals = []
   for (const pair of pairs) {
     if (isEmptyDual(pair.render) && isEmptyDual(pair.real)) continue
-    if (isEmptyDual(pair.render)) {
-      throw new Error('每组须包含效果图')
-    }
     renders.push(await resolveDualImage(pair.render, 'portfolio'))
     reals.push(await resolveDualImage(pair.real, 'portfolio'))
   }
@@ -155,6 +165,7 @@ async function onSubmit() {
 
     const base = {
       slug: '',
+      category: form.category,
       address: form.address,
       area: form.area,
       style: form.style,
@@ -170,14 +181,14 @@ async function onSubmit() {
       }
       messageOk.value = true
       message.value = '已创建'
-      await router.replace('/portfolios')
+      await router.replace(`/portfolios/${form.category}`)
     } else {
       const id = route.params.id
       await updatePortfolio(id, base)
       await putPortfolioImages(id, { renders, reals })
       messageOk.value = true
       message.value = '已保存'
-      await router.replace('/portfolios')
+      await router.replace(`/portfolios/${form.category}`)
     }
   } catch (err) {
     messageOk.value = false

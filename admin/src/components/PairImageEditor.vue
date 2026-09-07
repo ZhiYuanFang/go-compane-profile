@@ -11,8 +11,8 @@
       <div class="pair-fields">
         <DualImageField
           :model-value="pair.render"
-          :label="`效果图 #${i + 1}`"
-          hint=""
+          :label="`效果图 #${i + 1}（可选）`"
+          hint="至少上传效果图或实景图一侧"
           @update:model-value="(v) => updateField(i, 'render', v)"
         />
         <DualImageField

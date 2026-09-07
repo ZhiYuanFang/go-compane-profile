@@ -21,6 +21,9 @@ type CompanyView struct {
 	Values     string  `json:"values"`
 	YearsLabel string  `json:"yearsLabel"`
 	Address    string  `json:"address"`
+	Awards     string  `json:"awards"`
+	Phone      string  `json:"phone"`
+	Wechat     string  `json:"wechat"`
 	Logo       DualURL `json:"logo"`
 	LogoHor    DualURL `json:"logoHor"`
 }
@@ -48,6 +51,9 @@ type UpdateCompanyInput struct {
 	Values     string  `json:"values"`
 	YearsLabel string  `json:"yearsLabel"`
 	Address    string  `json:"address"`
+	Awards     string  `json:"awards"`
+	Phone      string  `json:"phone"`
+	Wechat     string  `json:"wechat"`
 	Logo       DualURL `json:"logo"`
 	LogoHor    DualURL `json:"logoHor"`
 }
@@ -60,6 +66,9 @@ func UpdateCompany(ctx context.Context, in UpdateCompanyInput) (*CompanyView, er
 		"design_values":         in.Values,
 		"years_label":           in.YearsLabel,
 		"address":               in.Address,
+		"awards":                in.Awards,
+		"phone":                 in.Phone,
+		"wechat":                in.Wechat,
 		"logo_original_url":     in.Logo.Original,
 		"logo_thumb_url":        in.Logo.Thumb,
 		"logo_hor_original_url": in.LogoHor.Original,
@@ -94,6 +103,9 @@ func companyToView(row *entity.Company) *CompanyView {
 		Values:     row.Values,
 		YearsLabel: row.YearsLabel,
 		Address:    row.Address,
+		Awards:     row.Awards,
+		Phone:      row.Phone,
+		Wechat:     row.Wechat,
 		Logo: DualURL{
 			Thumb:    row.LogoThumbUrl,
 			Original: row.LogoOriginalUrl,

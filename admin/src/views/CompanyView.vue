@@ -33,6 +33,22 @@
         </div>
       </div>
 
+      <div class="field">
+        <label for="awards">奖项描述</label>
+        <textarea id="awards" v-model="form.awards" rows="6" placeholder="支持换行，小程序将按行展示" />
+      </div>
+
+      <div class="grid-2">
+        <div class="field">
+          <label for="phone">电话</label>
+          <input id="phone" v-model="form.phone" />
+        </div>
+        <div class="field">
+          <label for="wechat">微信号</label>
+          <input id="wechat" v-model="form.wechat" />
+        </div>
+      </div>
+
       <div class="grid-2">
         <DualImageField v-model="form.logo" label="Logo（方）" />
         <DualImageField v-model="form.logoHor" label="Logo（横）" />
@@ -66,6 +82,9 @@ const form = reactive({
   values: '',
   yearsLabel: '',
   address: '',
+  awards: '',
+  phone: '',
+  wechat: '',
   logo: emptyDual(),
   logoHor: emptyDual(),
 })
@@ -84,6 +103,9 @@ function applyCompany(data) {
   form.values = data?.values || ''
   form.yearsLabel = data?.yearsLabel || ''
   form.address = data?.address || ''
+  form.awards = data?.awards || ''
+  form.phone = data?.phone || ''
+  form.wechat = data?.wechat || ''
   form.logo = emptyDual(data?.logo)
   form.logoHor = emptyDual(data?.logoHor)
 }
@@ -111,6 +133,9 @@ async function onSubmit() {
       values: form.values,
       yearsLabel: form.yearsLabel,
       address: form.address,
+      awards: form.awards,
+      phone: form.phone,
+      wechat: form.wechat,
       logo,
       logoHor,
     }
