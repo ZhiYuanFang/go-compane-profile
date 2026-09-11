@@ -94,6 +94,8 @@ const processing = ref(false)
 const error = ref('')
 const localPreview = ref('')
 const localOriginalPreview = ref('')
+const pendingPreview = ref('')
+const pendingOriginalPreview = ref('')
 const lightboxOpen = ref(false)
 const dragOver = ref(false)
 const dragDepth = ref(0)
@@ -101,6 +103,7 @@ const fileInput = ref(null)
 
 const previewUrl = computed(() => {
   if (localPreview.value) return localPreview.value
+  if (pendingPreview.value) return pendingPreview.value
   const v = props.modelValue
   if (!v) return ''
   return v.thumb || v.original || ''
@@ -108,10 +111,41 @@ const previewUrl = computed(() => {
 
 const lightboxUrl = computed(() => {
   if (localOriginalPreview.value) return localOriginalPreview.value
+  if (pendingOriginalPreview.value) return pendingOriginalPreview.value
   const v = props.modelValue
   if (!v) return previewUrl.value
   return v.original || v.thumb || previewUrl.value
 })
+
+function revokePendingPreviews() {
+  revokeObjectUrl(pendingPreview.value)
+  revokeObjectUrl(pendingOriginalPreview.value)
+  pendingPreview.value = ''
+  pendingOriginalPreview.value = ''
+}
+
+function syncPendingPreviews(pending) {
+  revokePendingPreviews()
+  if (!pending?.thumb) return
+  pendingPreview.value = URL.createObjectURL(pending.thumb)
+  if (pending.original) {
+    pendingOriginalPreview.value = URL.createObjectURL(pending.original)
+  }
+}
+
+watch(
+  () => props.modelValue?.pending,
+  (pending) => {
+    // External pending (e.g. batch import) needs blob previews; local applyFile already sets localPreview.
+    if (!pending) {
+      revokePendingPreviews()
+      return
+    }
+    if (localPreview.value) return
+    syncPendingPreviews(pending)
+  },
+  { immediate: true },
+)
 
 watch(
   () => props.modelValue,
@@ -143,6 +177,7 @@ onUnmounted(() => {
 onBeforeUnmount(() => {
   revokeObjectUrl(localPreview.value)
   revokeObjectUrl(localOriginalPreview.value)
+  revokePendingPreviews()
 })
 
 function emitValue(next) {
@@ -255,6 +290,7 @@ function clear() {
   revokeObjectUrl(localOriginalPreview.value)
   localPreview.value = ''
   localOriginalPreview.value = ''
+  revokePendingPreviews()
   error.value = ''
   lightboxOpen.value = false
   emitValue({ thumb: '', original: '', pending: null })
