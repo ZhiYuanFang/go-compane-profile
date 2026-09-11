@@ -2,8 +2,8 @@
   <section>
     <div class="header">
       <div>
-        <h1 class="page-title">{{ isNew ? '新建活动' : '编辑活动' }}</h1>
-        <p class="page-sub">标题、活动图与正文（支持字号 / 加粗 / 颜色）</p>
+        <h1 class="page-title">{{ isNew ? '新建新闻' : '编辑新闻' }}</h1>
+        <p class="page-sub">标题、封面图与正文（支持字号 / 加粗 / 颜色）</p>
       </div>
       <router-link class="btn btn-ghost" to="/activities">返回列表</router-link>
     </div>
@@ -14,10 +14,10 @@
     <form v-if="!loading" class="glass-panel form" @submit.prevent="onSubmit">
       <div class="field">
         <label for="title">标题（必填）</label>
-        <input id="title" v-model.trim="form.title" required maxlength="255" placeholder="请输入活动标题" />
+        <input id="title" v-model.trim="form.title" required maxlength="255" placeholder="请输入新闻标题" />
       </div>
 
-      <DualImageField v-model="form.image" label="活动图（必填）" />
+      <DualImageField v-model="form.image" label="封面图（必填）" />
 
       <div class="field">
         <label>正文</label>
@@ -97,10 +97,10 @@ async function onSubmit() {
   saving.value = true
   message.value = ''
   try {
-    if (!form.title.trim()) throw new Error('请填写活动标题')
-    if (isEmptyDual(form.image)) throw new Error('请上传活动图')
+    if (!form.title.trim()) throw new Error('请填写新闻标题')
+    if (isEmptyDual(form.image)) throw new Error('请上传封面图')
     const image = await resolveDualImage(form.image, 'activity')
-    if (!image.thumb && !image.original) throw new Error('请上传活动图')
+    if (!image.thumb && !image.original) throw new Error('请上传封面图')
     const payload = {
       title: form.title.trim(),
       bodyHtml: form.bodyHtml || '',

@@ -34,8 +34,7 @@ type PortfolioDetail struct {
 	Style     string    `json:"style"`
 	HeartFlow string    `json:"heartFlow"`
 	Cover     DualURL   `json:"cover"`
-	Renders   []DualURL `json:"renders"`
-	Reals     []DualURL `json:"reals"`
+	Images    []DualURL `json:"images"`
 }
 
 // AdminPortfolio is admin list/detail with numeric id + slug.
@@ -50,8 +49,7 @@ type AdminPortfolio struct {
 	Style     string    `json:"style"`
 	HeartFlow string    `json:"heartFlow"`
 	Cover     DualURL   `json:"cover"`
-	Renders   []DualURL `json:"renders"`
-	Reals     []DualURL `json:"reals"`
+	Images    []DualURL `json:"images"`
 }
 
 // PortfolioInput is create/update body.
@@ -64,8 +62,7 @@ type PortfolioInput struct {
 	Style     string    `json:"style"`
 	HeartFlow string    `json:"heartFlow"`
 	Cover     DualURL   `json:"cover"`
-	Renders   []DualURL `json:"renders"`
-	Reals     []DualURL `json:"reals"`
+	Images    []DualURL `json:"images"`
 }
 
 // PortfolioListPage is a paginated public portfolio list.
@@ -145,7 +142,7 @@ func GetPortfolioPublic(ctx context.Context, id string) (*PortfolioDetail, error
 	if err != nil {
 		return nil, err
 	}
-	renders, reals, err := loadGallery(ctx, row.Id)
+	images, err := loadGallery(ctx, row.Id)
 	if err != nil {
 		return nil, err
 	}
@@ -160,8 +157,7 @@ func GetPortfolioPublic(ctx context.Context, id string) (*PortfolioDetail, error
 			Thumb:    row.CoverThumbUrl,
 			Original: row.CoverOriginalUrl,
 		},
-		Renders: renders,
-		Reals:   reals,
+		Images: images,
 	}, nil
 }
 
@@ -238,7 +234,7 @@ func CreatePortfolio(ctx context.Context, in PortfolioInput) (*AdminPortfolio, e
 				return err
 			}
 		}
-		if err := replaceGalleryTx(ctx, tx, uint64(id), in.Renders, in.Reals); err != nil {
+		if err := replaceGalleryTx(ctx, tx, uint64(id), in.Images); err != nil {
 			return err
 		}
 		row := entity.Portfolio{}
@@ -269,11 +265,11 @@ func UpdatePortfolio(ctx context.Context, id string, in PortfolioInput) (*AdminP
 		}
 	}
 	oldCover := DualURL{Thumb: row.CoverThumbUrl, Original: row.CoverOriginalUrl}
-	oldRenders, oldReals, err := loadGallery(ctx, row.Id)
+	oldImages, err := loadGallery(ctx, row.Id)
 	if err != nil {
 		return nil, err
 	}
-	touchGallery := in.Renders != nil || in.Reals != nil
+	touchGallery := in.Images != nil
 	categoryChanged := newCat != row.Category
 	err = g.DB().Transaction(ctx, func(ctx context.Context, tx gdb.TX) error {
 		data := g.Map{
@@ -306,15 +302,7 @@ func UpdatePortfolio(ctx context.Context, id string, in PortfolioInput) (*AdminP
 			}
 		}
 		if touchGallery {
-			renders := in.Renders
-			reals := in.Reals
-			if renders == nil {
-				renders, _, _ = loadGalleryTx(ctx, tx, row.Id)
-			}
-			if reals == nil {
-				_, reals, _ = loadGalleryTx(ctx, tx, row.Id)
-			}
-			if err := replaceGalleryTx(ctx, tx, row.Id, renders, reals); err != nil {
+			if err := replaceGalleryTx(ctx, tx, row.Id, in.Images); err != nil {
 				return err
 			}
 		}
@@ -325,16 +313,8 @@ func UpdatePortfolio(ctx context.Context, id string, in PortfolioInput) (*AdminP
 	}
 	deleteReplacedDualsBestEffort(ctx, []DualURL{oldCover}, []DualURL{in.Cover})
 	if touchGallery {
-		renders := in.Renders
-		reals := in.Reals
-		if renders == nil {
-			renders = oldRenders
-		}
-		if reals == nil {
-			reals = oldReals
-		}
-		oldURLs := collectDualURLLists(oldRenders, oldReals)
-		newURLs := collectDualURLLists(renders, reals)
+		oldURLs := collectDualURLLists(oldImages)
+		newURLs := collectDualURLLists(in.Images)
 		deleteOSSURLsBestEffort(ctx, urlsNotIn(oldURLs, newURLs))
 	}
 	return GetPortfolioAdmin(ctx, fmt.Sprintf("%d", row.Id))
@@ -346,12 +326,12 @@ func DeletePortfolio(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	renders, reals, err := loadGallery(ctx, row.Id)
+	images, err := loadGallery(ctx, row.Id)
 	if err != nil {
 		return err
 	}
 	urls := collectDualURLs(nil, DualURL{Thumb: row.CoverThumbUrl, Original: row.CoverOriginalUrl})
-	urls = append(urls, collectDualURLLists(renders, reals)...)
+	urls = append(urls, collectDualURLLists(images)...)
 	if _, err = g.DB().Model("portfolio").Ctx(ctx).Where("id", row.Id).Delete(); err != nil {
 		return err
 	}
@@ -395,24 +375,24 @@ func resequenceCategoryTx(ctx context.Context, tx gdb.TX, category string) error
 	return nil
 }
 
-// SavePortfolioGallery replaces renders/reals for a portfolio.
-func SavePortfolioGallery(ctx context.Context, id string, renders, reals []DualURL) (*AdminPortfolio, error) {
+// SavePortfolioGallery replaces images for a portfolio.
+func SavePortfolioGallery(ctx context.Context, id string, images []DualURL) (*AdminPortfolio, error) {
 	row, err := findPortfolioBySlugOrID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	oldRenders, oldReals, err := loadGallery(ctx, row.Id)
+	oldImages, err := loadGallery(ctx, row.Id)
 	if err != nil {
 		return nil, err
 	}
 	err = g.DB().Transaction(ctx, func(ctx context.Context, tx gdb.TX) error {
-		return replaceGalleryTx(ctx, tx, row.Id, renders, reals)
+		return replaceGalleryTx(ctx, tx, row.Id, images)
 	})
 	if err != nil {
 		return nil, err
 	}
-	oldURLs := collectDualURLLists(oldRenders, oldReals)
-	newURLs := collectDualURLLists(renders, reals)
+	oldURLs := collectDualURLLists(oldImages)
+	newURLs := collectDualURLLists(images)
 	deleteOSSURLsBestEffort(ctx, urlsNotIn(oldURLs, newURLs))
 	return GetPortfolioAdmin(ctx, fmt.Sprintf("%d", row.Id))
 }
@@ -457,7 +437,7 @@ func toAdminPortfolio(ctx context.Context, row *entity.Portfolio) (*AdminPortfol
 }
 
 func toAdminPortfolioTx(ctx context.Context, db dbQuerier, row *entity.Portfolio) (*AdminPortfolio, error) {
-	renders, reals, err := loadGalleryTx(ctx, db, row.Id)
+	images, err := loadGalleryTx(ctx, db, row.Id)
 	if err != nil {
 		return nil, err
 	}
@@ -475,59 +455,50 @@ func toAdminPortfolioTx(ctx context.Context, db dbQuerier, row *entity.Portfolio
 			Thumb:    row.CoverThumbUrl,
 			Original: row.CoverOriginalUrl,
 		},
-		Renders: renders,
-		Reals:   reals,
+		Images: images,
 	}, nil
 }
 
-func loadGallery(ctx context.Context, portfolioID uint64) (renders, reals []DualURL, err error) {
+func loadGallery(ctx context.Context, portfolioID uint64) ([]DualURL, error) {
 	return loadGalleryTx(ctx, g.DB(), portfolioID)
 }
 
-func loadGalleryTx(ctx context.Context, db dbQuerier, portfolioID uint64) (renders, reals []DualURL, err error) {
+func loadGalleryTx(ctx context.Context, db dbQuerier, portfolioID uint64) ([]DualURL, error) {
 	var imgs []entity.PortfolioImage
-	if err = db.Model("portfolio_image").Ctx(ctx).
+	if err := db.Model("portfolio_image").Ctx(ctx).
 		Where("portfolio_id", portfolioID).
-		OrderAsc("kind").OrderAsc("sort_order").OrderAsc("id").
+		OrderAsc("sort_order").OrderAsc("id").
 		Scan(&imgs); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	renders = make([]DualURL, 0)
-	reals = make([]DualURL, 0)
+	out := make([]DualURL, 0, len(imgs))
 	for _, img := range imgs {
-		pair := DualURL{Thumb: img.ThumbUrl, Original: img.OriginalUrl}
-		switch img.Kind {
-		case entity.ImageKindRender:
-			renders = append(renders, pair)
-		case entity.ImageKindReal:
-			reals = append(reals, pair)
+		if img.ThumbUrl == "" && img.OriginalUrl == "" {
+			continue
 		}
+		out = append(out, DualURL{Thumb: img.ThumbUrl, Original: img.OriginalUrl})
 	}
-	return renders, reals, nil
+	return out, nil
 }
 
-func replaceGalleryTx(ctx context.Context, tx dbQuerier, portfolioID uint64, renders, reals []DualURL) error {
+func replaceGalleryTx(ctx context.Context, tx dbQuerier, portfolioID uint64, images []DualURL) error {
 	if _, err := tx.Model("portfolio_image").Ctx(ctx).Where("portfolio_id", portfolioID).Delete(); err != nil {
 		return err
 	}
-	rows := make([]g.Map, 0, len(renders)+len(reals))
-	for i, u := range renders {
+	rows := make([]g.Map, 0, len(images))
+	sort := 0
+	for _, u := range images {
+		if u.Thumb == "" && u.Original == "" {
+			continue
+		}
 		rows = append(rows, g.Map{
 			"portfolio_id": portfolioID,
-			"kind":         entity.ImageKindRender,
-			"sort_order":   i,
+			"kind":         entity.ImageKindImage,
+			"sort_order":   sort,
 			"original_url": u.Original,
 			"thumb_url":    u.Thumb,
 		})
-	}
-	for i, u := range reals {
-		rows = append(rows, g.Map{
-			"portfolio_id": portfolioID,
-			"kind":         entity.ImageKindReal,
-			"sort_order":   i,
-			"original_url": u.Original,
-			"thumb_url":    u.Thumb,
-		})
+		sort++
 	}
 	if len(rows) == 0 {
 		return nil

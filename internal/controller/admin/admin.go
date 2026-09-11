@@ -114,15 +114,11 @@ func (c *Controller) ReorderPortfolios(ctx context.Context, req *v1.ReorderPortf
 }
 
 func (c *Controller) SaveGallery(ctx context.Context, req *v1.SaveGalleryReq) (res *v1.SaveGalleryRes, err error) {
-	renders := req.Renders
-	reals := req.Reals
-	if renders == nil {
-		renders = []service.DualURL{}
+	images := req.Images
+	if images == nil {
+		images = []service.DualURL{}
 	}
-	if reals == nil {
-		reals = []service.DualURL{}
-	}
-	item, err := service.SavePortfolioGallery(ctx, req.Id, renders, reals)
+	item, err := service.SavePortfolioGallery(ctx, req.Id, images)
 	if err != nil {
 		return nil, err
 	}

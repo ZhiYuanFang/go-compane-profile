@@ -3,7 +3,7 @@
     <div class="header">
       <div>
         <h1 class="page-title">{{ isNew ? '新建作品' : '编辑作品' }}</h1>
-        <p class="page-sub">封面与效果图 / 实景图在提交时上传</p>
+        <p class="page-sub">封面与作品图在提交时上传</p>
       </div>
       <router-link class="btn btn-ghost" :to="`/portfolios/${listCategory}`">返回列表</router-link>
     </div>
@@ -42,7 +42,7 @@
 
       <DualImageField v-model="form.cover" label="封面" />
 
-      <PairImageEditor v-model="form.pairs" title="效果图 / 实景图对比" />
+      <ImageListEditor v-model="form.images" title="作品图" />
 
       <div class="form-actions">
         <button class="btn btn-primary" type="submit" :disabled="saving">
@@ -59,7 +59,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import DualImageField from '@/components/DualImageField.vue'
-import PairImageEditor from '@/components/PairImageEditor.vue'
+import ImageListEditor from '@/components/ImageListEditor.vue'
 import {
   createPortfolio,
   getPortfolio,
@@ -83,20 +83,6 @@ function isEmptyDual(d) {
   return !d.thumb && !d.original
 }
 
-function zipPairs(renders, reals) {
-  const r = renders || []
-  const a = reals || []
-  const n = Math.max(r.length, a.length)
-  const pairs = []
-  for (let i = 0; i < n; i++) {
-    pairs.push({
-      render: emptyDual(r[i]),
-      real: emptyDual(a[i]),
-    })
-  }
-  return pairs
-}
-
 const route = useRoute()
 const router = useRouter()
 const isNew = computed(() => route.name === 'portfolio-new')
@@ -116,7 +102,7 @@ const form = reactive({
   style: '',
   heartFlow: '',
   cover: emptyDual(),
-  pairs: [],
+  images: [],
 })
 
 function applyPortfolio(data) {
@@ -126,7 +112,7 @@ function applyPortfolio(data) {
   form.style = data?.style || ''
   form.heartFlow = data?.heartFlow || ''
   form.cover = emptyDual(data?.cover)
-  form.pairs = zipPairs(data?.renders, data?.reals)
+  form.images = (data?.images || []).map((img) => emptyDual(img))
 }
 
 onMounted(async () => {
@@ -145,15 +131,13 @@ onMounted(async () => {
   }
 })
 
-async function resolvePairs(pairs) {
-  const renders = []
-  const reals = []
-  for (const pair of pairs) {
-    if (isEmptyDual(pair.render) && isEmptyDual(pair.real)) continue
-    renders.push(await resolveDualImage(pair.render, 'portfolio'))
-    reals.push(await resolveDualImage(pair.real, 'portfolio'))
+async function resolveImages(list) {
+  const images = []
+  for (const item of list || []) {
+    if (isEmptyDual(item)) continue
+    images.push(await resolveDualImage(item, 'portfolio'))
   }
-  return { renders, reals }
+  return images
 }
 
 async function onSubmit() {
@@ -161,7 +145,7 @@ async function onSubmit() {
   message.value = ''
   try {
     const cover = await resolveDualImage(form.cover, 'portfolio')
-    const { renders, reals } = await resolvePairs(form.pairs)
+    const images = await resolveImages(form.images)
 
     const base = {
       slug: '',
@@ -174,10 +158,10 @@ async function onSubmit() {
     }
 
     if (isNew.value) {
-      const created = await createPortfolio({ ...base, renders, reals })
+      const created = await createPortfolio({ ...base, images })
       const id = created?.id ?? created
-      if (created && created.renders === undefined) {
-        await putPortfolioImages(id, { renders, reals })
+      if (created && created.images === undefined) {
+        await putPortfolioImages(id, { images })
       }
       messageOk.value = true
       message.value = '已创建'
@@ -185,7 +169,7 @@ async function onSubmit() {
     } else {
       const id = route.params.id
       await updatePortfolio(id, base)
-      await putPortfolioImages(id, { renders, reals })
+      await putPortfolioImages(id, { images })
       messageOk.value = true
       message.value = '已保存'
       await router.replace(`/portfolios/${form.category}`)

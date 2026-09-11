@@ -11,11 +11,13 @@
 
       <nav class="nav">
         <router-link to="/company">公司简介</router-link>
-        <router-link to="/portfolios/residential">住宅作品集</router-link>
-        <router-link to="/portfolios/commercial">商业作品集</router-link>
-        <router-link to="/portfolios/office">办公作品集</router-link>
-        <router-link to="/portfolios/installation">装置作品集</router-link>
-        <router-link to="/activities">活动</router-link>
+        <div class="nav-group">室内设计</div>
+        <router-link class="nav-sub" to="/portfolios/residential">住宅作品集</router-link>
+        <router-link class="nav-sub" to="/portfolios/commercial">商业作品集</router-link>
+        <router-link class="nav-sub" to="/portfolios/office">办公作品集</router-link>
+        <router-link to="/portfolios/architecture">建筑设计作品集</router-link>
+        <router-link to="/portfolios/installation">装置设计作品集</router-link>
+        <router-link to="/activities">新闻</router-link>
       </nav>
 
       <button type="button" class="btn btn-ghost logout" :disabled="loggingOut" @click="onLogout">
@@ -108,6 +110,19 @@ async function onLogout() {
   flex-direction: column;
   gap: 0.35rem;
   flex: 1;
+}
+
+.nav-group {
+  margin-top: 0.5rem;
+  padding: 0.35rem 0.9rem 0.15rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.nav-sub {
+  padding-left: 1.35rem !important;
 }
 
 .nav a {

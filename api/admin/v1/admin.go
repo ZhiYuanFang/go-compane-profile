@@ -97,10 +97,9 @@ type ReorderPortfoliosRes struct {
 }
 
 type SaveGalleryReq struct {
-	g.Meta  `path:"/portfolios/{id}/gallery" tags:"AdminPortfolio" method:"put" summary:"Save portfolio gallery"`
-	Id      string            `json:"id" v:"required" in:"path"`
-	Renders []service.DualURL `json:"renders"`
-	Reals   []service.DualURL `json:"reals"`
+	g.Meta `path:"/portfolios/{id}/gallery" tags:"AdminPortfolio" method:"put" summary:"Save portfolio gallery"`
+	Id     string            `json:"id" v:"required" in:"path"`
+	Images []service.DualURL `json:"images"`
 }
 
 type SaveGalleryRes struct {

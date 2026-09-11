@@ -12,6 +12,7 @@ const (
 	CategoryResidential  = "residential"
 	CategoryCommercial   = "commercial"
 	CategoryOffice       = "office"
+	CategoryArchitecture = "architecture"
 	CategoryInstallation = "installation"
 )
 
@@ -19,6 +20,7 @@ var validPortfolioCategories = map[string]struct{}{
 	CategoryResidential:  {},
 	CategoryCommercial:   {},
 	CategoryOffice:       {},
+	CategoryArchitecture: {},
 	CategoryInstallation: {},
 }
 

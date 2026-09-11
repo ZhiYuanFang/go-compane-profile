@@ -2,16 +2,16 @@
   <section>
     <div class="header">
       <div>
-        <h1 class="page-title">活动</h1>
-        <p class="page-sub">管理活动顺序与内容</p>
+        <h1 class="page-title">新闻</h1>
+        <p class="page-sub">管理新闻顺序与内容</p>
       </div>
-      <router-link class="btn btn-primary" to="/activities/new">新建活动</router-link>
+      <router-link class="btn btn-primary" to="/activities/new">新建新闻</router-link>
     </div>
 
     <div v-if="error" class="alert alert-error">{{ error }}</div>
     <div v-if="message" class="alert alert-ok">{{ message }}</div>
     <div v-if="loading" class="muted">加载中…</div>
-    <div v-else-if="!items.length" class="glass-panel empty">暂无活动，点击「新建活动」开始录入。</div>
+    <div v-else-if="!items.length" class="glass-panel empty">暂无新闻，点击「新建新闻」开始录入。</div>
 
     <ul v-else class="list">
       <li v-for="(item, index) in items" :key="item.id" class="glass-panel row">
@@ -20,7 +20,7 @@
           <span v-else class="no-cover">无图</span>
         </div>
         <div class="meta">
-          <div class="title">{{ item.title || `活动 #${item.id}` }}</div>
+          <div class="title">{{ item.title || `新闻 #${item.id}` }}</div>
           <div class="sub muted">热度 {{ item.viewCount ?? 0 }}</div>
         </div>
         <div class="order">
