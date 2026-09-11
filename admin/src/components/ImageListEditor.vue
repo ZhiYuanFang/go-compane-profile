@@ -313,7 +313,7 @@ onBeforeUnmount(() => {
 
 .gallery-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(4, 1fr);
   gap: 0.75rem;
 }
 
@@ -428,7 +428,13 @@ onBeforeUnmount(() => {
   margin-top: 0.85rem;
 }
 
-@media (max-width: 700px) {
+@media (max-width: 900px) {
+  .gallery-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
   .gallery-grid {
     grid-template-columns: 1fr;
   }
