@@ -38,72 +38,97 @@
     <div v-if="!modelValue.length" class="muted empty-list">暂无图片，可批量选择上传</div>
 
     <div v-else class="gallery-grid">
-      <div v-for="(item, i) in modelValue" :key="slotKey(item, i)" class="gallery-cell" :class="{ selected: selected.has(i) }">
+      <div
+        v-for="(item, i) in modelValue"
+        :key="slotKey(item, i)"
+        class="gallery-cell"
+        :class="{ selected: selected.has(i), busy: slotBusy === i }"
+      >
         <label class="gallery-check" @click.stop>
           <input type="checkbox" :checked="selected.has(i)" :disabled="processing" @change="toggleSelect(i, $event)" />
         </label>
         <span class="gallery-index">#{{ i + 1 }}</span>
-        <button
-          type="button"
-          class="gallery-thumb"
-          :class="{ empty: !cellPreview(item) }"
-          :disabled="processing"
-          @click="openEditor(i)"
-        >
-          <img v-if="cellPreview(item)" :src="cellPreview(item)" :alt="`#${i + 1}`" />
-          <span v-else class="gallery-placeholder">点击编辑</span>
-        </button>
-        <span v-if="item?.pending" class="gallery-badge">待上传</span>
+
+        <div class="gallery-thumb-wrap">
+          <button
+            type="button"
+            class="gallery-thumb"
+            :class="{ empty: !cellPreview(item) }"
+            :disabled="processing || slotBusy === i"
+            @click="onThumbClick(i, item)"
+          >
+            <img v-if="cellPreview(item)" :src="cellPreview(item)" :alt="`#${i + 1}`" />
+            <span v-else class="gallery-placeholder">选择图片</span>
+          </button>
+
+          <div v-if="cellPreview(item)" class="gallery-ops" @click.stop>
+            <label class="op-btn">
+              换
+              <input
+                type="file"
+                accept="image/*"
+                hidden
+                :disabled="processing || slotBusy !== null"
+                @change="onReplaceFile(i, $event)"
+              />
+            </label>
+            <button type="button" class="op-btn" :disabled="processing || i === 0" @click="move(i, -1)">上</button>
+            <button
+              type="button"
+              class="op-btn"
+              :disabled="processing || i === modelValue.length - 1"
+              @click="move(i, 1)"
+            >
+              下
+            </button>
+            <button type="button" class="op-btn danger" :disabled="processing" @click="removeOne(i)">删</button>
+          </div>
+          <div v-else class="gallery-ops always" @click.stop>
+            <label class="op-btn">
+              选图
+              <input
+                type="file"
+                accept="image/*"
+                hidden
+                :disabled="processing || slotBusy !== null"
+                @change="onReplaceFile(i, $event)"
+              />
+            </label>
+            <button type="button" class="op-btn danger" :disabled="processing" @click="removeOne(i)">删</button>
+          </div>
+        </div>
+
+        <span v-if="slotBusy === i" class="gallery-badge">处理中…</span>
+        <span v-else-if="item?.pending" class="gallery-badge">待上传</span>
       </div>
     </div>
 
+    <input
+      ref="emptyPickInput"
+      type="file"
+      accept="image/*"
+      hidden
+      :disabled="processing || slotBusy !== null"
+      @change="onEmptyPickFile"
+    />
+
     <Teleport to="body">
       <div
-        v-if="editIndex !== null"
-        class="edit-dialog"
+        v-if="lightboxOpen && lightboxUrl"
+        class="lightbox"
         role="dialog"
         aria-modal="true"
-        @click.self="closeEditor"
-        @keydown.esc.prevent="closeEditor"
+        @click.self="closeLightbox"
       >
-        <div class="edit-panel glass-panel" @click.stop>
-          <div class="edit-panel-head">
-            <h3>编辑 #{{ editIndex + 1 }}</h3>
-            <button type="button" class="btn btn-sm btn-ghost" @click="closeEditor">关闭</button>
-          </div>
-          <DualImageField
-            v-if="editIndex !== null && modelValue[editIndex]"
-            :model-value="modelValue[editIndex]"
-            :label="`#${editIndex + 1}`"
-            hint=""
-            :disabled="processing"
-            @update:model-value="(v) => update(editIndex, v)"
-          />
-          <div class="edit-panel-ops">
-            <button type="button" class="btn btn-sm btn-ghost" :disabled="processing || editIndex === 0" @click="moveInEditor(-1)">
-              上移
-            </button>
-            <button
-              type="button"
-              class="btn btn-sm btn-ghost"
-              :disabled="processing || editIndex >= modelValue.length - 1"
-              @click="moveInEditor(1)"
-            >
-              下移
-            </button>
-            <button type="button" class="btn btn-sm btn-danger" :disabled="processing" @click="removeInEditor">
-              移除
-            </button>
-          </div>
-        </div>
+        <button type="button" class="lightbox-close btn btn-sm" @click="closeLightbox">关闭</button>
+        <img class="lightbox-img" :src="lightboxUrl" alt="" @click.stop />
       </div>
     </Teleport>
   </div>
 </template>
 
 <script setup>
-import { onBeforeUnmount, ref } from 'vue'
-import DualImageField from '@/components/DualImageField.vue'
+import { onBeforeUnmount, onMounted, onUnmounted, ref } from 'vue'
 import { processDualImage, revokeObjectUrl } from '@/utils/imageProcess'
 
 const props = defineProps({
@@ -116,10 +141,14 @@ const emit = defineEmits(['update:modelValue'])
 const processing = ref(false)
 const progressDone = ref(0)
 const progressTotal = ref(0)
+const slotBusy = ref(null)
 const error = ref('')
 const selected = ref(new Set())
-const editIndex = ref(null)
 const blobUrlCache = new Map()
+const lightboxOpen = ref(false)
+const lightboxUrl = ref('')
+const emptyPickInput = ref(null)
+const emptyPickIndex = ref(null)
 
 function emptyDual() {
   return { thumb: '', original: '', pending: null }
@@ -146,6 +175,13 @@ function cellPreview(item) {
   if (item.original) return item.original
   if (item.pending?.thumb) return getBlobUrl(item.pending.thumb)
   return ''
+}
+
+function cellLightbox(item) {
+  if (!item) return ''
+  if (item.pending?.original) return getBlobUrl(item.pending.original)
+  if (item.pending?.thumb) return getBlobUrl(item.pending.thumb)
+  return item.original || item.thumb || ''
 }
 
 function clearSelection() {
@@ -178,8 +214,11 @@ function remove(i) {
   next.splice(i, 1)
   emit('update:modelValue', next)
   clearSelection()
-  if (editIndex.value === i) editIndex.value = null
-  else if (editIndex.value !== null && editIndex.value > i) editIndex.value -= 1
+}
+
+function removeOne(i) {
+  if (!confirm(`确定移除 #${i + 1}？`)) return
+  remove(i)
 }
 
 function move(i, delta) {
@@ -190,28 +229,64 @@ function move(i, delta) {
   next.splice(j, 0, row)
   emit('update:modelValue', next)
   clearSelection()
-  if (editIndex.value === i) editIndex.value = j
-  else if (editIndex.value === j) editIndex.value = i
 }
 
-function openEditor(i) {
-  if (processing.value) return
-  editIndex.value = i
+function onThumbClick(i, item) {
+  if (processing.value || slotBusy.value !== null) return
+  if (!cellPreview(item)) {
+    emptyPickIndex.value = i
+    emptyPickInput.value?.click()
+    return
+  }
+  lightboxUrl.value = cellLightbox(item)
+  lightboxOpen.value = true
 }
 
-function closeEditor() {
-  editIndex.value = null
+function closeLightbox() {
+  lightboxOpen.value = false
+  lightboxUrl.value = ''
 }
 
-function moveInEditor(delta) {
-  if (editIndex.value === null) return
-  move(editIndex.value, delta)
+function onKeydown(e) {
+  if (e.key === 'Escape' && lightboxOpen.value) closeLightbox()
 }
 
-function removeInEditor() {
-  if (editIndex.value === null) return
-  if (!confirm(`确定移除 #${editIndex.value + 1}？`)) return
-  remove(editIndex.value)
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
+
+async function applyFileToSlot(i, file) {
+  if (!file || !file.type?.startsWith('image/')) return
+  slotBusy.value = i
+  error.value = ''
+  try {
+    const pair = await processDualImage(file)
+    const cur = props.modelValue[i] || emptyDual()
+    update(i, {
+      thumb: cur.thumb || '',
+      original: cur.original || '',
+      pending: pair,
+    })
+  } catch (err) {
+    error.value = err.message || '图片处理失败'
+  } finally {
+    slotBusy.value = null
+  }
+}
+
+async function onReplaceFile(i, e) {
+  const file = e.target.files?.[0]
+  e.target.value = ''
+  if (!file) return
+  await applyFileToSlot(i, file)
+}
+
+async function onEmptyPickFile(e) {
+  const file = e.target.files?.[0]
+  e.target.value = ''
+  const i = emptyPickIndex.value
+  emptyPickIndex.value = null
+  if (i == null || !file) return
+  await applyFileToSlot(i, file)
 }
 
 function removeSelected() {
@@ -222,7 +297,6 @@ function removeSelected() {
   for (const i of idxs) next.splice(i, 1)
   emit('update:modelValue', next)
   clearSelection()
-  editIndex.value = null
 }
 
 async function onBatchFiles(e) {
@@ -246,7 +320,6 @@ async function onBatchFiles(e) {
         emit('update:modelValue', list)
       } catch (err) {
         error.value = err.message || `第 ${i + 1} 张处理失败`
-        // keep already-appended items; stop further files
         break
       }
       progressDone.value = i + 1
@@ -322,10 +395,10 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border);
   border-radius: 10px;
   background: rgba(0, 0, 0, 0.22);
-  padding: 0.55rem;
+  padding: 0.45rem;
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.3rem;
 }
 
 .gallery-cell.selected {
@@ -334,9 +407,9 @@ onBeforeUnmount(() => {
 
 .gallery-check {
   position: absolute;
-  top: 0.45rem;
-  left: 0.45rem;
-  z-index: 2;
+  top: 0.4rem;
+  left: 0.4rem;
+  z-index: 3;
   display: flex;
   padding: 0.15rem;
   background: rgba(0, 0, 0, 0.45);
@@ -345,8 +418,14 @@ onBeforeUnmount(() => {
 
 .gallery-index {
   align-self: flex-end;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   color: var(--text-muted);
+  line-height: 1;
+}
+
+.gallery-thumb-wrap {
+  position: relative;
+  width: 100%;
 }
 
 .gallery-thumb {
@@ -357,10 +436,14 @@ onBeforeUnmount(() => {
   overflow: hidden;
   padding: 0;
   background: rgba(255, 255, 255, 0.03);
-  cursor: pointer;
+  cursor: zoom-in;
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.gallery-thumb.empty {
+  cursor: pointer;
 }
 
 .gallery-thumb:not(.empty) {
@@ -383,49 +466,80 @@ onBeforeUnmount(() => {
   color: var(--text-muted);
 }
 
+.gallery-ops {
+  position: absolute;
+  left: 0.35rem;
+  right: 0.35rem;
+  bottom: 0.35rem;
+  display: flex;
+  gap: 0.25rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+  z-index: 2;
+}
+
+.gallery-cell:hover .gallery-ops,
+.gallery-cell:focus-within .gallery-ops,
+.gallery-ops.always {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.op-btn {
+  box-sizing: border-box;
+  min-width: 1.7rem;
+  padding: 0.2rem 0.35rem;
+  border-radius: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  font-size: 0.7rem;
+  line-height: 1.2;
+  cursor: pointer;
+  text-align: center;
+}
+
+.op-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.op-btn.danger {
+  border-color: rgba(180, 35, 24, 0.7);
+  color: #ffb4a8;
+}
+
 .gallery-badge {
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   color: var(--accent, #6ea8fe);
 }
 
-.edit-dialog {
+.lightbox {
   position: fixed;
   inset: 0;
   z-index: 10000;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 1.25rem;
-  background: rgba(0, 0, 0, 0.72);
+  padding: 2rem;
+  background: rgba(0, 0, 0, 0.82);
   box-sizing: border-box;
 }
 
-.edit-panel {
-  width: min(520px, 100%);
+.lightbox-close {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+}
+
+.lightbox-img {
+  max-width: min(96vw, 1200px);
   max-height: 90vh;
-  overflow: auto;
-  padding: 1rem 1.1rem 1.15rem;
-}
-
-.edit-panel-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 0.85rem;
-}
-
-.edit-panel-head h3 {
-  margin: 0;
-  font-size: 1rem;
-  font-weight: 560;
-}
-
-.edit-panel-ops {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-  margin-top: 0.85rem;
+  object-fit: contain;
+  border-radius: 4px;
 }
 
 @media (max-width: 900px) {
