@@ -46,7 +46,7 @@
 
       <div class="form-actions">
         <button class="btn btn-primary" type="submit" :disabled="saving">
-          {{ saving ? '保存中…' : '保存' }}
+          {{ savingLabel }}
         </button>
       </div>
     </form>
@@ -68,6 +68,9 @@ import {
   updatePortfolio,
 } from '@/api/client'
 import { PORTFOLIO_CATEGORIES } from '@/constants/portfolioCategories'
+import { mapPool } from '@/utils/mapPool'
+
+const UPLOAD_CONCURRENCY = 3
 
 function emptyDual(src) {
   return {
@@ -83,6 +86,10 @@ function isEmptyDual(d) {
   return !d.thumb && !d.original
 }
 
+function needsUpload(d) {
+  return !!(d?.pending?.original && d?.pending?.thumb)
+}
+
 const route = useRoute()
 const router = useRouter()
 const isNew = computed(() => route.name === 'portfolio-new')
@@ -91,9 +98,17 @@ const categories = PORTFOLIO_CATEGORIES
 
 const loading = ref(!isNew.value)
 const saving = ref(false)
+const uploadDone = ref(0)
+const uploadTotal = ref(0)
 const loadError = ref('')
 const message = ref('')
 const messageOk = ref(false)
+
+const savingLabel = computed(() => {
+  if (!saving.value) return '保存'
+  if (uploadTotal.value > 0) return `上传中 ${uploadDone.value}/${uploadTotal.value}`
+  return '保存中…'
+})
 
 const form = reactive({
   category: route.params.category || 'residential',
@@ -131,21 +146,46 @@ onMounted(async () => {
   }
 })
 
-async function resolveImages(list) {
-  const images = []
-  for (const item of list || []) {
-    if (isEmptyDual(item)) continue
-    images.push(await resolveDualImage(item, 'portfolio'))
-  }
-  return images
+async function resolveImages(list, onProgress) {
+  const items = (list || []).filter((item) => !isEmptyDual(item))
+  const pendingCount = items.filter(needsUpload).length
+  let done = 0
+  if (onProgress) onProgress(0, pendingCount)
+
+  return mapPool(items, UPLOAD_CONCURRENCY, async (item) => {
+    const result = await resolveDualImage(item, 'portfolio')
+    if (needsUpload(item)) {
+      done += 1
+      if (onProgress) onProgress(done, pendingCount)
+    }
+    return result
+  })
 }
 
 async function onSubmit() {
   saving.value = true
   message.value = ''
+  uploadDone.value = 0
+  uploadTotal.value = 0
   try {
+    const pendingGallery = (form.images || []).filter((item) => !isEmptyDual(item) && needsUpload(item)).length
+    const pendingCover = needsUpload(form.cover) ? 1 : 0
+    uploadTotal.value = pendingCover + pendingGallery
+
+    let coverDone = 0
     const cover = await resolveDualImage(form.cover, 'portfolio')
-    const images = await resolveImages(form.images)
+    if (pendingCover) {
+      coverDone = 1
+      uploadDone.value = coverDone
+    }
+
+    const images = await resolveImages(form.images, (done, total) => {
+      uploadDone.value = coverDone + done
+      uploadTotal.value = pendingCover + total
+    })
+
+    uploadTotal.value = 0
+    uploadDone.value = 0
 
     const base = {
       slug: '',
@@ -179,6 +219,8 @@ async function onSubmit() {
     message.value = err.message || '保存失败'
   } finally {
     saving.value = false
+    uploadDone.value = 0
+    uploadTotal.value = 0
   }
 }
 </script>

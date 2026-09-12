@@ -1,7 +1,9 @@
 import imageCompression from 'browser-image-compression'
 
-const ORIGINAL_MAX = 5 * 1024 * 1024
-const THUMB_MAX = 500 * 1024
+const ORIGINAL_MAX_MB = 5
+const THUMB_MAX_MB = 0.5
+const ORIGINAL_MAX = ORIGINAL_MAX_MB * 1024 * 1024
+const THUMB_MAX = THUMB_MAX_MB * 1024 * 1024
 
 function extFromType(type) {
   if (!type) return 'jpg'
@@ -43,7 +45,7 @@ async function compressUnder(file, maxSizeMB, maxWidthOrHeight) {
 }
 
 /**
- * Produce original (≤5MB) + thumb (≤500KB) blobs from a user-selected File.
+ * Produce original (≤5MiB) + thumb (≤0.5MiB) blobs from a user-selected File.
  */
 export async function processDualImage(file) {
   if (!file || !file.type?.startsWith('image/')) {
@@ -53,15 +55,15 @@ export async function processDualImage(file) {
   const originalBlob =
     file.size <= ORIGINAL_MAX
       ? file
-      : await compressUnder(file, 5, 4096)
+      : await compressUnder(file, ORIGINAL_MAX_MB, 4096)
 
-  const thumbBlob = await compressUnder(file, 0.5, 1280)
+  const thumbBlob = await compressUnder(file, THUMB_MAX_MB, 1280)
 
   if (originalBlob.size > ORIGINAL_MAX) {
     throw new Error('原图超过 5MB，请换一张较小的图片')
   }
   if (thumbBlob.size > THUMB_MAX) {
-    throw new Error('缩略图超过 500KB，请换一张或降低分辨率')
+    throw new Error('缩略图超过 0.5MB，请换一张或降低分辨率')
   }
 
   return {
