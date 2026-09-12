@@ -23,6 +23,7 @@ export function createEmptyDual(src) {
     thumb,
     original,
     pending: src?.pending || null,
+    localPreview: src?.localPreview || '',
     status: src?.status || (hasRemote ? SLOT_STATUS.DONE : SLOT_STATUS.IDLE),
     error: src?.error || '',
   }
@@ -30,7 +31,7 @@ export function createEmptyDual(src) {
 
 export function isEmptyDual(d) {
   if (!d) return true
-  if (d.pending) return false
+  if (d.pending || d.localPreview) return false
   if (d.status === SLOT_STATUS.COMPRESSING || d.status === SLOT_STATUS.QUEUED || d.status === SLOT_STATUS.UPLOADING) {
     return false
   }

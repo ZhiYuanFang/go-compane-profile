@@ -26,7 +26,7 @@
 
       <div class="grid-2">
         <div class="field">
-          <label for="area">面积</label>
+          <label for="area">面积㎡</label>
           <input id="area" v-model="form.area" />
         </div>
         <div class="field">

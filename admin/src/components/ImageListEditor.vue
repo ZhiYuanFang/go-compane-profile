@@ -59,7 +59,7 @@
             type="button"
             class="gallery-thumb"
             :class="{ empty: !cellPreview(item) }"
-            :disabled="picking || isBusy(item)"
+            :disabled="picking"
             @click="onThumbClick(i, item)"
           >
             <img v-if="cellPreview(item)" :src="cellPreview(item)" :alt="`#${i + 1}`" />
@@ -154,6 +154,7 @@ import {
   cancelSlotUpload,
   enqueueFileUpload,
   enqueuePendingUpload,
+  getSharedCompressQueue,
   getSharedUploadQueue,
 } from '@/utils/imageUploadQueue'
 
@@ -184,11 +185,16 @@ function getBlobUrl(blob) {
   return url
 }
 
+function revokeLocalPreview(url) {
+  if (url) revokeObjectUrl(url)
+}
+
 function cellPreview(item) {
   if (!item) return ''
   if (item.thumb) return item.thumb
   if (item.original) return item.original
   if (item.pending?.thumb) return getBlobUrl(item.pending.thumb)
+  if (item.localPreview) return item.localPreview
   return ''
 }
 
@@ -196,6 +202,7 @@ function cellLightbox(item) {
   if (!item) return ''
   if (item.pending?.original) return getBlobUrl(item.pending.original)
   if (item.pending?.thumb) return getBlobUrl(item.pending.thumb)
+  if (item.localPreview) return item.localPreview
   return item.original || item.thumb || ''
 }
 
@@ -230,7 +237,15 @@ function patchSlot(slotId, partial) {
   const list = props.modelValue.slice()
   const i = list.findIndex((x) => x.slotId === slotId)
   if (i < 0) return
-  list[i] = { ...list[i], ...partial }
+  const prev = list[i]
+  if (
+    Object.prototype.hasOwnProperty.call(partial, 'localPreview') &&
+    prev.localPreview &&
+    partial.localPreview !== prev.localPreview
+  ) {
+    revokeLocalPreview(prev.localPreview)
+  }
+  list[i] = { ...prev, ...partial }
   setList(list)
 }
 
@@ -239,7 +254,9 @@ function add() {
 }
 
 function removeBySlotId(slotId) {
+  const item = props.modelValue.find((x) => x.slotId === slotId)
   cancelSlotUpload(slotId)
+  if (item?.localPreview) revokeLocalPreview(item.localPreview)
   setList(props.modelValue.filter((x) => x.slotId !== slotId))
   const next = new Set(selected.value)
   next.delete(slotId)
@@ -256,7 +273,11 @@ function removeSelected() {
   const ids = [...selected.value]
   if (!ids.length) return
   if (!confirm(`确定删除所选 ${ids.length} 张？`)) return
-  for (const id of ids) cancelSlotUpload(id)
+  for (const id of ids) {
+    const item = props.modelValue.find((x) => x.slotId === id)
+    cancelSlotUpload(id)
+    if (item?.localPreview) revokeLocalPreview(item.localPreview)
+  }
   setList(props.modelValue.filter((x) => !ids.includes(x.slotId)))
   clearSelection()
 }
@@ -277,6 +298,7 @@ function startUpload(item, file) {
     slotId: item.slotId,
     file,
     category: props.category,
+    prevLocalPreview: item.localPreview || '',
     patch: (partial) => patchSlot(item.slotId, partial),
   })
 }
@@ -303,8 +325,9 @@ function onReplaceFile(item, e) {
 }
 
 function onThumbClick(i, item) {
-  if (picking.value || isBusy(item)) return
+  if (picking.value) return
   if (!cellPreview(item)) {
+    if (isBusy(item)) return
     emptyPickSlotId.value = item.slotId
     emptyPickInput.value?.click()
     return
@@ -354,6 +377,7 @@ async function onBatchFiles(e) {
         slotId: added[i].slotId,
         file: files[i],
         category: props.category,
+        prevLocalPreview: '',
         patch: (partial) => patchSlot(added[i].slotId, partial),
       })
     }
@@ -367,12 +391,13 @@ async function onBatchFiles(e) {
 onBeforeUnmount(() => {
   for (const item of props.modelValue || []) {
     if (item?.slotId) cancelSlotUpload(item.slotId)
+    if (item?.localPreview) revokeLocalPreview(item.localPreview)
   }
   for (const url of blobUrlCache.values()) revokeObjectUrl(url)
   blobUrlCache.clear()
 })
 
-// ensure queue singleton exists
+getSharedCompressQueue()
 getSharedUploadQueue()
 </script>
 

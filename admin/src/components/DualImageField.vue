@@ -53,7 +53,7 @@
           v-if="previewUrl"
           type="button"
           class="btn btn-sm btn-ghost"
-          :disabled="disabled || isBusyStatus"
+          :disabled="disabled"
           @click="clear"
         >
           清除
@@ -82,9 +82,13 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
-import { processDualImage, revokeObjectUrl } from '@/utils/imageProcess'
+import { revokeObjectUrl } from '@/utils/imageProcess'
 import { createEmptyDual, dualStatusLabel, SLOT_STATUS } from '@/utils/dualSlot'
-import { cancelSlotUpload, enqueuePendingUpload } from '@/utils/imageUploadQueue'
+import {
+  cancelSlotUpload,
+  enqueuePendingUpload,
+  startSlotPipeline,
+} from '@/utils/imageUploadQueue'
 
 const props = defineProps({
   modelValue: {
@@ -125,7 +129,7 @@ const previewUrl = computed(() => {
   if (pendingPreview.value) return pendingPreview.value
   const v = props.modelValue
   if (!v) return ''
-  return v.thumb || v.original || ''
+  return v.thumb || v.original || v.localPreview || ''
 })
 
 const lightboxUrl = computed(() => {
@@ -133,7 +137,7 @@ const lightboxUrl = computed(() => {
   if (pendingOriginalPreview.value) return pendingOriginalPreview.value
   const v = props.modelValue
   if (!v) return previewUrl.value
-  return v.original || v.thumb || previewUrl.value
+  return v.original || v.thumb || v.localPreview || previewUrl.value
 })
 
 function revokePendingPreviews() {
@@ -155,28 +159,34 @@ function syncPendingPreviews(pending) {
 watch(
   () => props.modelValue?.pending,
   (pending) => {
-    // External pending (e.g. batch import) needs blob previews; local applyFile already sets localPreview.
     if (!pending) {
       revokePendingPreviews()
       return
     }
-    if (localPreview.value) return
+    if (localPreview.value) {
+      // upgrade lightbox to compressed original when available
+      if (pending.original) {
+        revokeObjectUrl(localOriginalPreview.value)
+        localOriginalPreview.value = URL.createObjectURL(pending.original)
+      }
+      return
+    }
     syncPendingPreviews(pending)
   },
   { immediate: true },
 )
 
 watch(
-  () => props.modelValue,
-  (v) => {
-    if (!v?.pending && localPreview.value) {
+  () => props.modelValue?.status,
+  (status) => {
+    if (status === SLOT_STATUS.DONE && (props.modelValue?.thumb || props.modelValue?.original)) {
       revokeObjectUrl(localPreview.value)
       localPreview.value = ''
       revokeObjectUrl(localOriginalPreview.value)
       localOriginalPreview.value = ''
+      revokePendingPreviews()
     }
   },
-  { deep: true },
 )
 
 function onKeydown(e) {
@@ -198,6 +208,7 @@ onBeforeUnmount(() => {
   if (id) cancelSlotUpload(id)
   revokeObjectUrl(localPreview.value)
   revokeObjectUrl(localOriginalPreview.value)
+  if (props.modelValue?.localPreview) revokeObjectUrl(props.modelValue.localPreview)
   revokePendingPreviews()
 })
 
@@ -214,7 +225,15 @@ function ensureSlotId() {
 }
 
 function patchSelf(partial) {
-  emitValue({ ...props.modelValue, ...partial })
+  const prev = props.modelValue
+  if (
+    Object.prototype.hasOwnProperty.call(partial, 'localPreview') &&
+    prev?.localPreview &&
+    partial.localPreview !== prev.localPreview
+  ) {
+    revokeObjectUrl(prev.localPreview)
+  }
+  emitValue({ ...prev, ...partial })
 }
 
 function openLightbox() {
@@ -250,68 +269,30 @@ function firstImageFile(fileList) {
   return null
 }
 
-async function applyFile(file) {
+function applyFile(file) {
   if (!file) return
   if (props.disabled) return
 
   error.value = ''
   const slotId = ensureSlotId()
-  cancelSlotUpload(slotId)
 
-  if (props.eagerUpload) {
-    emitValue({
-      slotId,
-      status: SLOT_STATUS.COMPRESSING,
-      error: '',
-    })
-    try {
-      const pair = await processDualImage(file)
-      revokeObjectUrl(localPreview.value)
-      revokeObjectUrl(localOriginalPreview.value)
-      localPreview.value = URL.createObjectURL(pair.thumb)
-      localOriginalPreview.value = URL.createObjectURL(pair.original)
-      emitValue({
-        slotId,
-        thumb: props.modelValue?.thumb || '',
-        original: props.modelValue?.original || '',
-        pending: pair,
-        status: SLOT_STATUS.QUEUED,
-        error: '',
-      })
-      enqueuePendingUpload({
-        slotId,
-        pending: pair,
-        category: props.category,
-        patch: (partial) => patchSelf(partial),
-      })
-    } catch (err) {
-      error.value = err.message || '图片处理失败'
-      emitValue({
-        slotId,
-        status: SLOT_STATUS.ERROR,
-        error: err.message || '图片处理失败',
-      })
-    }
-    return
-  }
+  revokeObjectUrl(localPreview.value)
+  revokeObjectUrl(localOriginalPreview.value)
+  const instant = URL.createObjectURL(file)
+  localPreview.value = instant
+  localOriginalPreview.value = instant
 
-  try {
-    const pair = await processDualImage(file)
-    revokeObjectUrl(localPreview.value)
-    revokeObjectUrl(localOriginalPreview.value)
-    localPreview.value = URL.createObjectURL(pair.thumb)
-    localOriginalPreview.value = URL.createObjectURL(pair.original)
-    emitValue({
-      slotId,
-      thumb: props.modelValue?.thumb || '',
-      original: props.modelValue?.original || '',
-      pending: pair,
-      status: SLOT_STATUS.QUEUED,
-      error: '',
-    })
-  } catch (err) {
-    error.value = err.message || '图片处理失败'
-  }
+  startSlotPipeline({
+    slotId,
+    file,
+    category: props.category,
+    prevLocalPreview: props.modelValue?.localPreview || '',
+    patch: (partial) => {
+      patchSelf(partial)
+      if (partial.error) error.value = partial.error
+      if (partial.status === SLOT_STATUS.DONE) error.value = ''
+    },
+  })
 }
 
 function retry() {
@@ -333,7 +314,7 @@ async function onFile(e) {
   const file = e.target.files?.[0]
   e.target.value = ''
   if (!file) return
-  await applyFile(file)
+  applyFile(file)
 }
 
 function onDragEnter() {
@@ -370,7 +351,7 @@ async function onDrop(e) {
     if (!ok) return
   }
 
-  await applyFile(file)
+  applyFile(file)
 }
 
 function clear() {
@@ -380,6 +361,7 @@ function clear() {
   revokeObjectUrl(localOriginalPreview.value)
   localPreview.value = ''
   localOriginalPreview.value = ''
+  if (props.modelValue?.localPreview) revokeObjectUrl(props.modelValue.localPreview)
   revokePendingPreviews()
   error.value = ''
   lightboxOpen.value = false
