@@ -93,17 +93,21 @@ export function enqueuePendingUpload({
 }) {
   if (!slotId || !pending?.original || !pending?.thumb) return
 
-  patch({ status: SLOT_STATUS.QUEUED, error: '' })
+  patch({ status: SLOT_STATUS.QUEUED, error: '', uploadProgress: null })
 
   queue.enqueue(slotId, async (signal) => {
     try {
       if (queue.isCancelled(slotId) || signal.aborted) return
-      patch({ status: SLOT_STATUS.UPLOADING, error: '' })
+      patch({ status: SLOT_STATUS.UPLOADING, error: '', uploadProgress: 0 })
       const result = await uploadDualImage({
         original: pending.original,
         thumb: pending.thumb,
         category,
         signal,
+        onProgress: (pct) => {
+          if (queue.isCancelled(slotId) || signal.aborted) return
+          patch({ uploadProgress: pct })
+        },
       })
       if (queue.isCancelled(slotId) || signal.aborted) return
 
@@ -114,6 +118,7 @@ export function enqueuePendingUpload({
         status: SLOT_STATUS.DONE,
         error: '',
         localPreview: '',
+        uploadProgress: null,
       }
       patch(donePatch)
     } catch (err) {
@@ -121,6 +126,7 @@ export function enqueuePendingUpload({
       patch({
         status: SLOT_STATUS.ERROR,
         error: err?.message || '上传失败',
+        uploadProgress: null,
       })
     }
   })

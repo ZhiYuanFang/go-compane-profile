@@ -24,6 +24,7 @@ export function createEmptyDual(src) {
     original,
     pending: src?.pending || null,
     localPreview: src?.localPreview || '',
+    uploadProgress: typeof src?.uploadProgress === 'number' ? src.uploadProgress : null,
     status: src?.status || (hasRemote ? SLOT_STATUS.DONE : SLOT_STATUS.IDLE),
     error: src?.error || '',
   }
@@ -46,6 +47,9 @@ export function dualStatusLabel(d) {
     case SLOT_STATUS.QUEUED:
       return '排队中'
     case SLOT_STATUS.UPLOADING:
+      if (typeof d.uploadProgress === 'number' && d.uploadProgress >= 0) {
+        return `上传中 ${d.uploadProgress}%`
+      }
       return '上传中'
     case SLOT_STATUS.DONE:
       return '已上传'

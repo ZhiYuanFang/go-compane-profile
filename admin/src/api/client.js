@@ -135,12 +135,97 @@ export function reorderActivities(payload) {
   })
 }
 
-export async function uploadDualImage({ original, thumb, category, signal }) {
+export async function uploadDualImage({ original, thumb, category, signal, onProgress }) {
   const form = new FormData()
   form.append('original', original, original.name || 'original.jpg')
   form.append('thumb', thumb, thumb.name || 'thumb.jpg')
   form.append('category', category || 'general')
-  return request('/admin/api/upload', { method: 'POST', body: form, signal })
+  return xhrFormUpload('/admin/api/upload', form, { signal, onProgress })
+}
+
+/**
+ * Multipart POST via XHR so upload progress is available (fetch cannot).
+ */
+function xhrFormUpload(path, formData, { signal, onProgress } = {}) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', `${baseURL}${path}`)
+    xhr.withCredentials = true
+
+    const onAbort = () => {
+      xhr.abort()
+    }
+    if (signal) {
+      if (signal.aborted) {
+        const err = new Error('Aborted')
+        err.name = 'AbortError'
+        reject(err)
+        return
+      }
+      signal.addEventListener('abort', onAbort)
+    }
+
+    let lastPct = -1
+    xhr.upload.onprogress = (e) => {
+      if (!onProgress || !e.lengthComputable || e.total <= 0) return
+      const pct = Math.min(100, Math.round((e.loaded / e.total) * 100))
+      if (pct === lastPct) return
+      lastPct = pct
+      onProgress(pct)
+    }
+
+    xhr.onload = () => {
+      if (signal) signal.removeEventListener('abort', onAbort)
+      let data = null
+      const text = xhr.responseText || ''
+      if (text) {
+        try {
+          data = JSON.parse(text)
+        } catch {
+          data = text
+        }
+      }
+
+      if (xhr.status < 200 || xhr.status >= 300) {
+        const message =
+          (data && (data.message || data.msg || data.error)) ||
+          (typeof data === 'string' ? data : null) ||
+          `Request failed (${xhr.status})`
+        const err = new Error(message)
+        err.status = xhr.status
+        err.data = data
+        reject(err)
+        return
+      }
+
+      if (data && typeof data === 'object' && 'code' in data && 'data' in data) {
+        if (data.code !== 0 && data.code !== 200) {
+          const err = new Error(data.message || data.msg || 'API error')
+          err.status = xhr.status
+          err.data = data
+          reject(err)
+          return
+        }
+        resolve(data.data)
+        return
+      }
+      resolve(data)
+    }
+
+    xhr.onerror = () => {
+      if (signal) signal.removeEventListener('abort', onAbort)
+      reject(new Error('网络错误'))
+    }
+
+    xhr.onabort = () => {
+      if (signal) signal.removeEventListener('abort', onAbort)
+      const err = new Error('Aborted')
+      err.name = 'AbortError'
+      reject(err)
+    }
+
+    xhr.send(formData)
+  })
 }
 
 /** Resolve pending DualImageField value → { thumb, original } via upload if needed */
