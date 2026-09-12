@@ -58,6 +58,26 @@ export function dualStatusLabel(d) {
   }
 }
 
+/** Four-tier tone: wait | busy | done | error | '' */
+export function dualStatusTone(d) {
+  if (!d) return ''
+  switch (d.status) {
+    case SLOT_STATUS.QUEUED:
+      return 'wait'
+    case SLOT_STATUS.COMPRESSING:
+    case SLOT_STATUS.UPLOADING:
+      return 'busy'
+    case SLOT_STATUS.DONE:
+      return 'done'
+    case SLOT_STATUS.ERROR:
+      return 'error'
+    default:
+      if (d.pending) return 'wait'
+      if (d.thumb || d.original) return 'done'
+      return ''
+  }
+}
+
 export function dualIsBlockingSave(d) {
   if (!d || isEmptyDual(d)) return false
   if (d.status === SLOT_STATUS.ERROR) return true

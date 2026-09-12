@@ -1,7 +1,10 @@
 <template>
   <div
     class="dual"
-    :class="{ 'is-dragover': dragOver, disabled: disabled }"
+    :class="[
+      statusToneClass,
+      { 'is-dragover': dragOver, disabled: disabled },
+    ]"
     @dragenter.prevent="onDragEnter"
     @dragover.prevent="onDragOver"
     @dragleave.prevent="onDragLeave"
@@ -9,7 +12,11 @@
   >
     <div class="dual-head">
       <span class="dual-label">{{ label }}</span>
-      <span v-if="statusText" class="dual-status" :class="{ pending: isBusyStatus, error: modelValue?.status === 'error' }">
+      <span
+        v-if="statusText"
+        class="dual-status slot-status-text"
+        :class="statusToneClass"
+      >
         {{ statusText }}
       </span>
       <span v-else-if="dragOver" class="dual-status pending">松开以添加</span>
@@ -83,12 +90,13 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
 import { revokeObjectUrl } from '@/utils/imageProcess'
-import { createEmptyDual, dualStatusLabel, SLOT_STATUS } from '@/utils/dualSlot'
+import { createEmptyDual, dualStatusLabel, dualStatusTone, SLOT_STATUS } from '@/utils/dualSlot'
 import {
   cancelSlotUpload,
   enqueuePendingUpload,
   startSlotPipeline,
 } from '@/utils/imageUploadQueue'
+import '@/styles/slotStatusTones.css'
 
 const props = defineProps({
   modelValue: {
@@ -123,6 +131,11 @@ const isBusyStatus = computed(() => {
 })
 
 const statusText = computed(() => dualStatusLabel(props.modelValue))
+
+const statusToneClass = computed(() => {
+  const tone = dualStatusTone(props.modelValue)
+  return tone ? `tone-${tone}` : ''
+})
 
 const previewUrl = computed(() => {
   if (localPreview.value) return localPreview.value
@@ -408,10 +421,6 @@ function clear() {
 
 .dual-status.pending {
   color: var(--accent);
-}
-
-.dual-status.error {
-  color: var(--danger);
 }
 
 .dual-body {
