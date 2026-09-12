@@ -40,10 +40,14 @@ var (
 			})
 
 			s.Group("/admin/api", func(group *ghttp.RouterGroup) {
-				group.Middleware(ghttp.MiddlewareHandlerResponse)
 				group.Middleware(corsMiddleware)
 				group.Middleware(middleware.AdminAuth)
-				group.Bind(admin.New())
+				// NDJSON stream must not use MiddlewareHandlerResponse wrapping.
+				group.POST("/upload/stream", admin.HandleUploadStream)
+				group.Group("/", func(api *ghttp.RouterGroup) {
+					api.Middleware(ghttp.MiddlewareHandlerResponse)
+					api.Bind(admin.New())
+				})
 			})
 
 			adminDir := "resource/public/admin"

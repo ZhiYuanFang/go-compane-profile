@@ -52,14 +52,31 @@ server {
   listen 443 ssl;
   server_name muhou.cuplay.top;
   # ssl_certificate ...;
+
+  # Streaming OSS upload progress (NDJSON). Do not buffer the response body.
+  location = /admin/api/upload/stream {
+    proxy_pass http://127.0.0.1:9100;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    client_max_body_size 12m;
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_http_version 1.1;
+    proxy_read_timeout 300s;
+    proxy_send_timeout 300s;
+  }
+
   location / {
     proxy_pass http://127.0.0.1:9100;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     client_max_body_size 12m;
+    proxy_read_timeout 300s;
   }
 }
 ```
+
+The stream handler also sends `X-Accel-Buffering: no`. After deploy, confirm progress keeps advancing **after** the browser finishes sending the multipart body (OSS put phase).
 
 ## WeChat mini-program domains
 

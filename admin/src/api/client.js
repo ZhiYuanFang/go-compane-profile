@@ -140,92 +140,86 @@ export async function uploadDualImage({ original, thumb, category, signal, onPro
   form.append('original', original, original.name || 'original.jpg')
   form.append('thumb', thumb, thumb.name || 'thumb.jpg')
   form.append('category', category || 'general')
-  return xhrFormUpload('/admin/api/upload', form, { signal, onProgress })
+  return uploadDualImageStream(form, { signal, onProgress })
 }
 
 /**
- * Multipart POST via XHR so upload progress is available (fetch cannot).
+ * POST multipart to /upload/stream and consume NDJSON progress/done/error events.
+ * Progress reflects OSS-weighted put progress from the server.
  */
-function xhrFormUpload(path, formData, { signal, onProgress } = {}) {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest()
-    xhr.open('POST', `${baseURL}${path}`)
-    xhr.withCredentials = true
-
-    const onAbort = () => {
-      xhr.abort()
-    }
-    if (signal) {
-      if (signal.aborted) {
-        const err = new Error('Aborted')
-        err.name = 'AbortError'
-        reject(err)
-        return
-      }
-      signal.addEventListener('abort', onAbort)
-    }
-
-    let lastPct = -1
-    xhr.upload.onprogress = (e) => {
-      if (!onProgress || !e.lengthComputable || e.total <= 0) return
-      const pct = Math.min(100, Math.round((e.loaded / e.total) * 100))
-      if (pct === lastPct) return
-      lastPct = pct
-      onProgress(pct)
-    }
-
-    xhr.onload = () => {
-      if (signal) signal.removeEventListener('abort', onAbort)
-      let data = null
-      const text = xhr.responseText || ''
-      if (text) {
-        try {
-          data = JSON.parse(text)
-        } catch {
-          data = text
-        }
-      }
-
-      if (xhr.status < 200 || xhr.status >= 300) {
-        const message =
-          (data && (data.message || data.msg || data.error)) ||
-          (typeof data === 'string' ? data : null) ||
-          `Request failed (${xhr.status})`
-        const err = new Error(message)
-        err.status = xhr.status
-        err.data = data
-        reject(err)
-        return
-      }
-
-      if (data && typeof data === 'object' && 'code' in data && 'data' in data) {
-        if (data.code !== 0 && data.code !== 200) {
-          const err = new Error(data.message || data.msg || 'API error')
-          err.status = xhr.status
-          err.data = data
-          reject(err)
-          return
-        }
-        resolve(data.data)
-        return
-      }
-      resolve(data)
-    }
-
-    xhr.onerror = () => {
-      if (signal) signal.removeEventListener('abort', onAbort)
-      reject(new Error('网络错误'))
-    }
-
-    xhr.onabort = () => {
-      if (signal) signal.removeEventListener('abort', onAbort)
-      const err = new Error('Aborted')
-      err.name = 'AbortError'
-      reject(err)
-    }
-
-    xhr.send(formData)
+async function uploadDualImageStream(formData, { signal, onProgress } = {}) {
+  const res = await fetch(`${baseURL}/admin/api/upload/stream`, {
+    method: 'POST',
+    body: formData,
+    credentials: 'include',
+    signal,
   })
+
+  if (!res.ok) {
+    let message = `Request failed (${res.status})`
+    try {
+      const text = await res.text()
+      const line = text.split('\n').find((l) => l.trim())
+      if (line) {
+        const ev = JSON.parse(line)
+        if (ev?.message) message = ev.message
+      }
+    } catch {
+      /* ignore */
+    }
+    const err = new Error(message)
+    err.status = res.status
+    throw err
+  }
+
+  if (!res.body) {
+    throw new Error('浏览器不支持流式上传响应')
+  }
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ''
+  let result = null
+  let lastPct = -1
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    let nl
+    while ((nl = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, nl).trim()
+      buf = buf.slice(nl + 1)
+      if (!line) continue
+      let ev
+      try {
+        ev = JSON.parse(line)
+      } catch {
+        continue
+      }
+      if (ev.type === 'progress') {
+        const pct = typeof ev.pct === 'number' ? ev.pct : 0
+        if (onProgress && pct !== lastPct) {
+          lastPct = pct
+          onProgress(pct)
+        }
+      } else if (ev.type === 'done') {
+        result = {
+          original: ev.original || '',
+          thumb: ev.thumb || '',
+          originalUrl: ev.original || '',
+          thumbUrl: ev.thumb || '',
+        }
+      } else if (ev.type === 'error') {
+        throw new Error(ev.message || '上传失败')
+      }
+    }
+  }
+
+  if (!result) {
+    throw new Error('上传未返回结果')
+  }
+  return result
 }
 
 /** Resolve pending DualImageField value → { thumb, original } via upload if needed */
