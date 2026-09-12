@@ -42,10 +42,7 @@
         v-for="(item, i) in listAcc"
         :key="item.slotId || i"
         class="gallery-cell"
-        :class="[
-          dualStatusTone(item) ? `tone-${dualStatusTone(item)}` : '',
-          { selected: selected.has(item.slotId || i), busy: isBusy(item) },
-        ]"
+        :class="{ selected: selected.has(item.slotId || i), busy: isBusy(item) }"
       >
         <label class="gallery-check" @click.stop>
           <input
@@ -117,7 +114,7 @@
 
         <span
           v-if="dualStatusLabel(item)"
-          class="gallery-badge slot-status-text"
+          class="gallery-badge"
           :class="dualStatusTone(item) ? `tone-${dualStatusTone(item)}` : ''"
         >
           {{ dualStatusLabel(item) }}
@@ -165,7 +162,6 @@ import {
   getSharedCompressQueue,
   getSharedUploadQueue,
 } from '@/utils/imageUploadQueue'
-import '@/styles/slotStatusTones.css'
 
 const props = defineProps({
   modelValue: { type: Array, default: () => [] },
@@ -499,7 +495,7 @@ getSharedUploadQueue()
 }
 
 .gallery-cell.selected {
-  box-shadow: 0 0 0 1px var(--accent, #6ea8fe);
+  border-color: var(--accent, #6ea8fe);
 }
 
 .gallery-check {
@@ -614,6 +610,22 @@ getSharedUploadQueue()
   color: var(--text-muted);
   line-height: 1.3;
   word-break: break-all;
+}
+
+.gallery-badge.tone-wait {
+  color: #8b9bb4;
+}
+
+.gallery-badge.tone-busy {
+  color: var(--accent, #6ea8fe);
+}
+
+.gallery-badge.tone-done {
+  color: #3dd68c;
+}
+
+.gallery-badge.tone-error {
+  color: var(--danger, #ff8f7a);
 }
 
 .lightbox {

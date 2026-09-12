@@ -1,10 +1,7 @@
 <template>
   <div
     class="dual"
-    :class="[
-      statusToneClass,
-      { 'is-dragover': dragOver, disabled: disabled },
-    ]"
+    :class="{ 'is-dragover': dragOver, disabled: disabled }"
     @dragenter.prevent="onDragEnter"
     @dragover.prevent="onDragOver"
     @dragleave.prevent="onDragLeave"
@@ -14,7 +11,7 @@
       <span class="dual-label">{{ label }}</span>
       <span
         v-if="statusText"
-        class="dual-status slot-status-text"
+        class="dual-status"
         :class="statusToneClass"
       >
         {{ statusText }}
@@ -96,7 +93,6 @@ import {
   enqueuePendingUpload,
   startSlotPipeline,
 } from '@/utils/imageUploadQueue'
-import '@/styles/slotStatusTones.css'
 
 const props = defineProps({
   modelValue: {
@@ -421,6 +417,22 @@ function clear() {
 
 .dual-status.pending {
   color: var(--accent);
+}
+
+.dual-status.tone-wait {
+  color: #8b9bb4;
+}
+
+.dual-status.tone-busy {
+  color: var(--accent, #6ea8fe);
+}
+
+.dual-status.tone-done {
+  color: #3dd68c;
+}
+
+.dual-status.tone-error {
+  color: var(--danger, #ff8f7a);
 }
 
 .dual-body {
