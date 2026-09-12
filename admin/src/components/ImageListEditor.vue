@@ -17,7 +17,7 @@
         <button type="button" class="btn btn-sm btn-ghost" :disabled="picking" @click="add">
           添加一张
         </button>
-        <button type="button" class="btn btn-sm btn-ghost" :disabled="picking || !modelValue.length" @click="selectAll">
+        <button type="button" class="btn btn-sm btn-ghost" :disabled="picking || !listAcc.length" @click="selectAll">
           全选
         </button>
         <button type="button" class="btn btn-sm btn-ghost" :disabled="picking || !selected.size" @click="clearSelection">
@@ -35,11 +35,11 @@
     </div>
 
     <p v-if="error" class="image-list-error">{{ error }}</p>
-    <div v-if="!modelValue.length" class="muted empty-list">暂无图片，可批量选择（选后自动上传）</div>
+    <div v-if="!listAcc.length" class="muted empty-list">暂无图片，可批量选择（选后自动上传）</div>
 
     <div v-else class="gallery-grid">
       <div
-        v-for="(item, i) in modelValue"
+        v-for="(item, i) in listAcc"
         :key="item.slotId || i"
         class="gallery-cell"
         :class="{ selected: selected.has(item.slotId || i), busy: isBusy(item) }"
@@ -81,7 +81,7 @@
             <button
               type="button"
               class="op-btn"
-              :disabled="picking || i === modelValue.length - 1"
+              :disabled="picking || i === listAcc.length - 1"
               @click="move(i, 1)"
             >
               下
@@ -143,7 +143,7 @@
 </template>
 
 <script setup>
-import { nextTick, onBeforeUnmount, onMounted, onUnmounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
 import { revokeObjectUrl } from '@/utils/imageProcess'
 import {
   createEmptyDual,
@@ -174,6 +174,19 @@ const lightboxOpen = ref(false)
 const lightboxUrl = ref('')
 const emptyPickInput = ref(null)
 const emptyPickSlotId = ref(null)
+
+/** Latest gallery list; patches always apply here to avoid stale-props races. */
+const listAcc = ref([])
+let syncingFromProps = false
+
+watch(
+  () => props.modelValue,
+  (v) => {
+    if (syncingFromProps) return
+    listAcc.value = Array.isArray(v) ? v.slice() : []
+  },
+  { immediate: true },
+)
 
 function getBlobUrl(blob) {
   if (!blob) return ''
@@ -219,7 +232,7 @@ function clearSelection() {
 }
 
 function selectAll() {
-  selected.value = new Set(props.modelValue.map((x, i) => x.slotId || i))
+  selected.value = new Set(listAcc.value.map((x, i) => x.slotId || i))
 }
 
 function toggleSelect(id, e) {
@@ -230,11 +243,16 @@ function toggleSelect(id, e) {
 }
 
 function setList(next) {
+  listAcc.value = next
+  syncingFromProps = true
   emit('update:modelValue', next)
+  queueMicrotask(() => {
+    syncingFromProps = false
+  })
 }
 
 function patchSlot(slotId, partial) {
-  const list = props.modelValue.slice()
+  const list = listAcc.value.slice()
   const i = list.findIndex((x) => x.slotId === slotId)
   if (i < 0) return
   const prev = list[i]
@@ -250,14 +268,14 @@ function patchSlot(slotId, partial) {
 }
 
 function add() {
-  setList([...props.modelValue, createEmptyDual()])
+  setList([...listAcc.value, createEmptyDual()])
 }
 
 function removeBySlotId(slotId) {
-  const item = props.modelValue.find((x) => x.slotId === slotId)
+  const item = listAcc.value.find((x) => x.slotId === slotId)
   cancelSlotUpload(slotId)
   if (item?.localPreview) revokeLocalPreview(item.localPreview)
-  setList(props.modelValue.filter((x) => x.slotId !== slotId))
+  setList(listAcc.value.filter((x) => x.slotId !== slotId))
   const next = new Set(selected.value)
   next.delete(slotId)
   selected.value = next
@@ -274,18 +292,18 @@ function removeSelected() {
   if (!ids.length) return
   if (!confirm(`确定删除所选 ${ids.length} 张？`)) return
   for (const id of ids) {
-    const item = props.modelValue.find((x) => x.slotId === id)
+    const item = listAcc.value.find((x) => x.slotId === id)
     cancelSlotUpload(id)
     if (item?.localPreview) revokeLocalPreview(item.localPreview)
   }
-  setList(props.modelValue.filter((x) => !ids.includes(x.slotId)))
+  setList(listAcc.value.filter((x) => !ids.includes(x.slotId)))
   clearSelection()
 }
 
 function move(i, delta) {
   const j = i + delta
-  if (j < 0 || j >= props.modelValue.length) return
-  const next = props.modelValue.slice()
+  if (j < 0 || j >= listAcc.value.length) return
+  const next = listAcc.value.slice()
   const [row] = next.splice(i, 1)
   next.splice(j, 0, row)
   setList(next)
@@ -354,12 +372,12 @@ function onEmptyPickFile(e) {
   const slotId = emptyPickSlotId.value
   emptyPickSlotId.value = null
   if (!slotId || !file) return
-  const item = props.modelValue.find((x) => x.slotId === slotId)
+  const item = listAcc.value.find((x) => x.slotId === slotId)
   if (!item) return
   startUpload(item, file)
 }
 
-async function onBatchFiles(e) {
+function onBatchFiles(e) {
   const files = Array.from(e.target.files || []).filter(
     (f) => f && typeof f.type === 'string' && f.type.startsWith('image/'),
   )
@@ -369,15 +387,21 @@ async function onBatchFiles(e) {
   picking.value = true
   error.value = ''
   try {
-    const added = files.map(() => createEmptyDual())
-    setList([...props.modelValue, ...added])
-    await nextTick()
+    const added = files.map((file) => {
+      const dual = createEmptyDual()
+      dual.localPreview = URL.createObjectURL(file)
+      dual.status = SLOT_STATUS.QUEUED
+      dual.error = ''
+      return dual
+    })
+    setList([...listAcc.value, ...added])
+
     for (let i = 0; i < files.length; i++) {
       enqueueFileUpload({
         slotId: added[i].slotId,
         file: files[i],
         category: props.category,
-        prevLocalPreview: '',
+        skipLocalPreviewSetup: true,
         patch: (partial) => patchSlot(added[i].slotId, partial),
       })
     }
@@ -389,7 +413,7 @@ async function onBatchFiles(e) {
 }
 
 onBeforeUnmount(() => {
-  for (const item of props.modelValue || []) {
+  for (const item of listAcc.value || []) {
     if (item?.slotId) cancelSlotUpload(item.slotId)
     if (item?.localPreview) revokeLocalPreview(item.localPreview)
   }

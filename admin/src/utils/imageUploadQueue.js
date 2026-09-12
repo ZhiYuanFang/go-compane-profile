@@ -2,7 +2,7 @@ import { uploadDualImage } from '@/api/client'
 import { processDualImage, revokeObjectUrl } from '@/utils/imageProcess'
 import { SLOT_STATUS } from '@/utils/dualSlot'
 
-const DEFAULT_CONCURRENCY = 3
+const DEFAULT_CONCURRENCY = 1
 
 /**
  * Shared concurrency-limited queue keyed by slotId (used for compress and upload).
@@ -127,8 +127,8 @@ export function enqueuePendingUpload({
 }
 
 /**
- * Compress in compress pool (concurrency 3), then enqueue HTTP upload.
- * Sets instant localPreview from the selected File.
+ * Compress in compress pool, then enqueue HTTP upload.
+ * Sets instant localPreview from the selected File unless skipLocalPreviewSetup.
  */
 export function enqueueFileUpload({
   slotId,
@@ -136,6 +136,7 @@ export function enqueueFileUpload({
   category,
   patch,
   prevLocalPreview = '',
+  skipLocalPreviewSetup = false,
   compressQueue = getSharedCompressQueue(),
 }) {
   if (!slotId || !file) return
@@ -143,15 +144,22 @@ export function enqueueFileUpload({
   // Replace any in-flight work for this slot
   cancelSlotUpload(slotId)
 
-  if (prevLocalPreview) revokeObjectUrl(prevLocalPreview)
-  const localPreview = URL.createObjectURL(file)
-
-  patch({
-    localPreview,
-    status: SLOT_STATUS.QUEUED,
-    error: '',
-    pending: null,
-  })
+  if (!skipLocalPreviewSetup) {
+    if (prevLocalPreview) revokeObjectUrl(prevLocalPreview)
+    const localPreview = URL.createObjectURL(file)
+    patch({
+      localPreview,
+      status: SLOT_STATUS.QUEUED,
+      error: '',
+      pending: null,
+    })
+  } else {
+    patch({
+      status: SLOT_STATUS.QUEUED,
+      error: '',
+      pending: null,
+    })
+  }
 
   compressQueue.enqueue(slotId, async (signal) => {
     try {
