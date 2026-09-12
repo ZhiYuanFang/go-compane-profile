@@ -1,7 +1,7 @@
 <template>
   <div
     class="dual"
-    :class="{ 'is-dragover': dragOver, disabled: disabled || processing }"
+    :class="{ 'is-dragover': dragOver, disabled: disabled }"
     @dragenter.prevent="onDragEnter"
     @dragover.prevent="onDragOver"
     @dragleave.prevent="onDragLeave"
@@ -9,9 +9,9 @@
   >
     <div class="dual-head">
       <span class="dual-label">{{ label }}</span>
-      <span v-if="processing" class="dual-status">处理中…</span>
-      <span v-else-if="modelValue?.pending" class="dual-status pending">待上传</span>
-      <span v-else-if="previewUrl" class="dual-status">已保存</span>
+      <span v-if="statusText" class="dual-status" :class="{ pending: isBusyStatus, error: modelValue?.status === 'error' }">
+        {{ statusText }}
+      </span>
       <span v-else-if="dragOver" class="dual-status pending">松开以添加</span>
     </div>
 
@@ -36,15 +36,24 @@
             type="file"
             accept="image/*"
             hidden
-            :disabled="disabled || processing"
+            :disabled="disabled"
             @change="onFile"
           />
         </label>
         <button
+          v-if="modelValue?.status === 'error'"
+          type="button"
+          class="btn btn-sm"
+          :disabled="disabled || isBusyStatus"
+          @click="retry"
+        >
+          重试
+        </button>
+        <button
           v-if="previewUrl"
           type="button"
           class="btn btn-sm btn-ghost"
-          :disabled="disabled || processing"
+          :disabled="disabled || isBusyStatus"
           @click="clear"
         >
           清除
@@ -74,23 +83,26 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
 import { processDualImage, revokeObjectUrl } from '@/utils/imageProcess'
+import { createEmptyDual, dualStatusLabel, SLOT_STATUS } from '@/utils/dualSlot'
+import { cancelSlotUpload, enqueuePendingUpload } from '@/utils/imageUploadQueue'
 
 const props = defineProps({
   modelValue: {
     type: Object,
-    default: () => ({ thumb: '', original: '', pending: null }),
+    default: () => createEmptyDual(),
   },
   label: { type: String, default: '图片' },
   hint: {
     type: String,
-    default: '可拖拽图片到此处；选择后本地压缩为原图≤5MB + 缩略图≤500KB，提交时再上传',
+    default: '可拖拽图片到此处；选择后自动压缩并上传（原图≤3MB，缩略≤0.5MB）',
   },
   disabled: { type: Boolean, default: false },
+  category: { type: String, default: 'general' },
+  eagerUpload: { type: Boolean, default: true },
 })
 
 const emit = defineEmits(['update:modelValue'])
 
-const processing = ref(false)
 const error = ref('')
 const localPreview = ref('')
 const localOriginalPreview = ref('')
@@ -100,6 +112,13 @@ const lightboxOpen = ref(false)
 const dragOver = ref(false)
 const dragDepth = ref(0)
 const fileInput = ref(null)
+
+const isBusyStatus = computed(() => {
+  const s = props.modelValue?.status
+  return s === SLOT_STATUS.COMPRESSING || s === SLOT_STATUS.QUEUED || s === SLOT_STATUS.UPLOADING
+})
+
+const statusText = computed(() => dualStatusLabel(props.modelValue))
 
 const previewUrl = computed(() => {
   if (localPreview.value) return localPreview.value
@@ -175,13 +194,27 @@ onUnmounted(() => {
 })
 
 onBeforeUnmount(() => {
+  const id = props.modelValue?.slotId
+  if (id) cancelSlotUpload(id)
   revokeObjectUrl(localPreview.value)
   revokeObjectUrl(localOriginalPreview.value)
   revokePendingPreviews()
 })
 
 function emitValue(next) {
-  emit('update:modelValue', next)
+  const base = createEmptyDual(props.modelValue)
+  emit('update:modelValue', { ...base, ...next })
+}
+
+function ensureSlotId() {
+  if (props.modelValue?.slotId) return props.modelValue.slotId
+  const dual = createEmptyDual(props.modelValue)
+  emit('update:modelValue', dual)
+  return dual.slotId
+}
+
+function patchSelf(partial) {
+  emitValue({ ...props.modelValue, ...partial })
 }
 
 function openLightbox() {
@@ -194,12 +227,12 @@ function closeLightbox() {
 }
 
 function openFilePicker() {
-  if (props.disabled || processing.value) return
+  if (props.disabled) return
   fileInput.value?.click()
 }
 
 function onPreviewClick() {
-  if (props.disabled || processing.value) return
+  if (props.disabled) return
   if (!previewUrl.value) {
     openFilePicker()
     return
@@ -219,10 +252,49 @@ function firstImageFile(fileList) {
 
 async function applyFile(file) {
   if (!file) return
-  if (props.disabled || processing.value) return
+  if (props.disabled) return
 
-  processing.value = true
   error.value = ''
+  const slotId = ensureSlotId()
+  cancelSlotUpload(slotId)
+
+  if (props.eagerUpload) {
+    emitValue({
+      slotId,
+      status: SLOT_STATUS.COMPRESSING,
+      error: '',
+    })
+    try {
+      const pair = await processDualImage(file)
+      revokeObjectUrl(localPreview.value)
+      revokeObjectUrl(localOriginalPreview.value)
+      localPreview.value = URL.createObjectURL(pair.thumb)
+      localOriginalPreview.value = URL.createObjectURL(pair.original)
+      emitValue({
+        slotId,
+        thumb: props.modelValue?.thumb || '',
+        original: props.modelValue?.original || '',
+        pending: pair,
+        status: SLOT_STATUS.QUEUED,
+        error: '',
+      })
+      enqueuePendingUpload({
+        slotId,
+        pending: pair,
+        category: props.category,
+        patch: (partial) => patchSelf(partial),
+      })
+    } catch (err) {
+      error.value = err.message || '图片处理失败'
+      emitValue({
+        slotId,
+        status: SLOT_STATUS.ERROR,
+        error: err.message || '图片处理失败',
+      })
+    }
+    return
+  }
+
   try {
     const pair = await processDualImage(file)
     revokeObjectUrl(localPreview.value)
@@ -230,15 +302,31 @@ async function applyFile(file) {
     localPreview.value = URL.createObjectURL(pair.thumb)
     localOriginalPreview.value = URL.createObjectURL(pair.original)
     emitValue({
+      slotId,
       thumb: props.modelValue?.thumb || '',
       original: props.modelValue?.original || '',
       pending: pair,
+      status: SLOT_STATUS.QUEUED,
+      error: '',
     })
   } catch (err) {
     error.value = err.message || '图片处理失败'
-  } finally {
-    processing.value = false
   }
+}
+
+function retry() {
+  const slotId = props.modelValue?.slotId || ensureSlotId()
+  const pending = props.modelValue?.pending
+  if (pending?.original && pending?.thumb) {
+    enqueuePendingUpload({
+      slotId,
+      pending,
+      category: props.category,
+      patch: (partial) => patchSelf(partial),
+    })
+    return
+  }
+  openFilePicker()
 }
 
 async function onFile(e) {
@@ -249,13 +337,13 @@ async function onFile(e) {
 }
 
 function onDragEnter() {
-  if (props.disabled || processing.value) return
+  if (props.disabled) return
   dragDepth.value += 1
   dragOver.value = true
 }
 
 function onDragOver() {
-  if (props.disabled || processing.value) return
+  if (props.disabled) return
   dragOver.value = true
 }
 
@@ -269,7 +357,7 @@ function onDragLeave() {
 async function onDrop(e) {
   dragDepth.value = 0
   dragOver.value = false
-  if (props.disabled || processing.value) return
+  if (props.disabled) return
 
   const file = firstImageFile(e.dataTransfer?.files)
   if (!file) {
@@ -286,6 +374,8 @@ async function onDrop(e) {
 }
 
 function clear() {
+  const id = props.modelValue?.slotId
+  if (id) cancelSlotUpload(id)
   revokeObjectUrl(localPreview.value)
   revokeObjectUrl(localOriginalPreview.value)
   localPreview.value = ''
@@ -293,7 +383,7 @@ function clear() {
   revokePendingPreviews()
   error.value = ''
   lightboxOpen.value = false
-  emitValue({ thumb: '', original: '', pending: null })
+  emitValue(createEmptyDual())
 }
 </script>
 
@@ -336,6 +426,10 @@ function clear() {
 
 .dual-status.pending {
   color: var(--accent);
+}
+
+.dual-status.error {
+  color: var(--danger);
 }
 
 .dual-body {

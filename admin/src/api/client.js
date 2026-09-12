@@ -135,12 +135,12 @@ export function reorderActivities(payload) {
   })
 }
 
-export async function uploadDualImage({ original, thumb, category }) {
+export async function uploadDualImage({ original, thumb, category, signal }) {
   const form = new FormData()
   form.append('original', original, original.name || 'original.jpg')
   form.append('thumb', thumb, thumb.name || 'thumb.jpg')
   form.append('category', category || 'general')
-  return request('/admin/api/upload', { method: 'POST', body: form })
+  return request('/admin/api/upload', { method: 'POST', body: form, signal })
 }
 
 /** Resolve pending DualImageField value → { thumb, original } via upload if needed */

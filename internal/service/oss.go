@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	MaxOriginalBytes = 5 * 1024 * 1024 // 5MB
-	MaxThumbBytes    = 500 * 1024      // 500KB
+	MaxOriginalBytes = 3 * 1024 * 1024     // 3MiB
+	MaxThumbBytes    = 512 * 1024          // 0.5MiB
 )
 
 // DualUploadResult is a CDN URL pair for original + thumb.
@@ -62,10 +62,10 @@ func getOSSBucket() (*oss.Bucket, error) {
 // UploadDualImage uploads original + thumb with distinct keys under muhou/.
 func UploadDualImage(original, thumb io.Reader, originalSize, thumbSize int64, category, originalName, thumbName string) (*DualUploadResult, error) {
 	if originalSize <= 0 || originalSize > MaxOriginalBytes {
-		return nil, gerror.NewCode(gcode.CodeInvalidParameter, "原图须 ≤5MB")
+		return nil, gerror.NewCode(gcode.CodeInvalidParameter, "原图须 ≤3MB")
 	}
 	if thumbSize <= 0 || thumbSize > MaxThumbBytes {
-		return nil, gerror.NewCode(gcode.CodeInvalidParameter, "缩略图须 ≤500KB")
+		return nil, gerror.NewCode(gcode.CodeInvalidParameter, "缩略图须 ≤0.5MB")
 	}
 	cfg := config.LoadAppConfig()
 	cat := sanitizeCategory(category)

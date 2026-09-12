@@ -3,30 +3,30 @@
     <div class="image-list-head">
       <h2>{{ title }}</h2>
       <div class="image-list-head-actions">
-        <label class="btn btn-sm" :class="{ disabled: processing }">
-          {{ processing ? `处理中 ${progressDone}/${progressTotal}` : '批量选择' }}
+        <label class="btn btn-sm" :class="{ disabled: picking }">
+          {{ picking ? '添加中…' : '批量选择' }}
           <input
             type="file"
             accept="image/*"
             multiple
             hidden
-            :disabled="processing"
+            :disabled="picking"
             @change="onBatchFiles"
           />
         </label>
-        <button type="button" class="btn btn-sm btn-ghost" :disabled="processing" @click="add">
+        <button type="button" class="btn btn-sm btn-ghost" :disabled="picking" @click="add">
           添加一张
         </button>
-        <button type="button" class="btn btn-sm btn-ghost" :disabled="processing || !modelValue.length" @click="selectAll">
+        <button type="button" class="btn btn-sm btn-ghost" :disabled="picking || !modelValue.length" @click="selectAll">
           全选
         </button>
-        <button type="button" class="btn btn-sm btn-ghost" :disabled="processing || !selected.size" @click="clearSelection">
+        <button type="button" class="btn btn-sm btn-ghost" :disabled="picking || !selected.size" @click="clearSelection">
           取消全选
         </button>
         <button
           type="button"
           class="btn btn-sm btn-danger"
-          :disabled="processing || !selected.size"
+          :disabled="picking || !selected.size"
           @click="removeSelected"
         >
           删除所选{{ selected.size ? ` (${selected.size})` : '' }}
@@ -35,17 +35,22 @@
     </div>
 
     <p v-if="error" class="image-list-error">{{ error }}</p>
-    <div v-if="!modelValue.length" class="muted empty-list">暂无图片，可批量选择上传</div>
+    <div v-if="!modelValue.length" class="muted empty-list">暂无图片，可批量选择（选后自动上传）</div>
 
     <div v-else class="gallery-grid">
       <div
         v-for="(item, i) in modelValue"
-        :key="slotKey(item, i)"
+        :key="item.slotId || i"
         class="gallery-cell"
-        :class="{ selected: selected.has(i), busy: slotBusy === i }"
+        :class="{ selected: selected.has(item.slotId || i), busy: isBusy(item) }"
       >
         <label class="gallery-check" @click.stop>
-          <input type="checkbox" :checked="selected.has(i)" :disabled="processing" @change="toggleSelect(i, $event)" />
+          <input
+            type="checkbox"
+            :checked="selected.has(item.slotId || i)"
+            :disabled="picking"
+            @change="toggleSelect(item.slotId || i, $event)"
+          />
         </label>
         <span class="gallery-index">#{{ i + 1 }}</span>
 
@@ -54,7 +59,7 @@
             type="button"
             class="gallery-thumb"
             :class="{ empty: !cellPreview(item) }"
-            :disabled="processing || slotBusy === i"
+            :disabled="picking || isBusy(item)"
             @click="onThumbClick(i, item)"
           >
             <img v-if="cellPreview(item)" :src="cellPreview(item)" :alt="`#${i + 1}`" />
@@ -68,20 +73,29 @@
                 type="file"
                 accept="image/*"
                 hidden
-                :disabled="processing || slotBusy !== null"
-                @change="onReplaceFile(i, $event)"
+                :disabled="picking"
+                @change="onReplaceFile(item, $event)"
               />
             </label>
-            <button type="button" class="op-btn" :disabled="processing || i === 0" @click="move(i, -1)">上</button>
+            <button type="button" class="op-btn" :disabled="picking || i === 0" @click="move(i, -1)">上</button>
             <button
               type="button"
               class="op-btn"
-              :disabled="processing || i === modelValue.length - 1"
+              :disabled="picking || i === modelValue.length - 1"
               @click="move(i, 1)"
             >
               下
             </button>
-            <button type="button" class="op-btn danger" :disabled="processing" @click="removeOne(i)">删</button>
+            <button
+              v-if="item.status === 'error'"
+              type="button"
+              class="op-btn"
+              :disabled="picking"
+              @click="retry(item)"
+            >
+              重试
+            </button>
+            <button type="button" class="op-btn danger" :disabled="picking" @click="removeOne(item)">删</button>
           </div>
           <div v-else class="gallery-ops always" @click.stop>
             <label class="op-btn">
@@ -90,16 +104,17 @@
                 type="file"
                 accept="image/*"
                 hidden
-                :disabled="processing || slotBusy !== null"
-                @change="onReplaceFile(i, $event)"
+                :disabled="picking"
+                @change="onReplaceFile(item, $event)"
               />
             </label>
-            <button type="button" class="op-btn danger" :disabled="processing" @click="removeOne(i)">删</button>
+            <button type="button" class="op-btn danger" :disabled="picking" @click="removeOne(item)">删</button>
           </div>
         </div>
 
-        <span v-if="slotBusy === i" class="gallery-badge">处理中…</span>
-        <span v-else-if="item?.pending" class="gallery-badge">待上传</span>
+        <span v-if="dualStatusLabel(item)" class="gallery-badge" :class="{ error: item.status === 'error' }">
+          {{ dualStatusLabel(item) }}
+        </span>
       </div>
     </div>
 
@@ -108,7 +123,7 @@
       type="file"
       accept="image/*"
       hidden
-      :disabled="processing || slotBusy !== null"
+      :disabled="picking"
       @change="onEmptyPickFile"
     />
 
@@ -128,36 +143,36 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, onUnmounted, ref } from 'vue'
-import { processDualImage, revokeObjectUrl } from '@/utils/imageProcess'
+import { nextTick, onBeforeUnmount, onMounted, onUnmounted, ref } from 'vue'
+import { revokeObjectUrl } from '@/utils/imageProcess'
+import {
+  createEmptyDual,
+  dualStatusLabel,
+  SLOT_STATUS,
+} from '@/utils/dualSlot'
+import {
+  cancelSlotUpload,
+  enqueueFileUpload,
+  enqueuePendingUpload,
+  getSharedUploadQueue,
+} from '@/utils/imageUploadQueue'
 
 const props = defineProps({
   modelValue: { type: Array, default: () => [] },
   title: { type: String, required: true },
+  category: { type: String, default: 'portfolio' },
 })
 
 const emit = defineEmits(['update:modelValue'])
 
-const processing = ref(false)
-const progressDone = ref(0)
-const progressTotal = ref(0)
-const slotBusy = ref(null)
+const picking = ref(false)
 const error = ref('')
 const selected = ref(new Set())
 const blobUrlCache = new Map()
 const lightboxOpen = ref(false)
 const lightboxUrl = ref('')
 const emptyPickInput = ref(null)
-const emptyPickIndex = ref(null)
-
-function emptyDual() {
-  return { thumb: '', original: '', pending: null }
-}
-
-function slotKey(item, i) {
-  if (item?.pending?.thumb) return `p-${i}-${item.pending.thumb.name || i}`
-  return `s-${i}-${item?.thumb || item?.original || 'empty'}`
-}
+const emptyPickSlotId = ref(null)
 
 function getBlobUrl(blob) {
   if (!blob) return ''
@@ -184,41 +199,66 @@ function cellLightbox(item) {
   return item.original || item.thumb || ''
 }
 
+function isBusy(item) {
+  return (
+    item?.status === SLOT_STATUS.COMPRESSING ||
+    item?.status === SLOT_STATUS.QUEUED ||
+    item?.status === SLOT_STATUS.UPLOADING
+  )
+}
+
 function clearSelection() {
   selected.value = new Set()
 }
 
 function selectAll() {
-  selected.value = new Set(props.modelValue.map((_, i) => i))
+  selected.value = new Set(props.modelValue.map((x, i) => x.slotId || i))
 }
 
-function toggleSelect(i, e) {
+function toggleSelect(id, e) {
   const next = new Set(selected.value)
-  if (e.target.checked) next.add(i)
-  else next.delete(i)
+  if (e.target.checked) next.add(id)
+  else next.delete(id)
   selected.value = next
 }
 
-function update(i, val) {
-  const next = props.modelValue.slice()
-  next[i] = val
+function setList(next) {
   emit('update:modelValue', next)
+}
+
+function patchSlot(slotId, partial) {
+  const list = props.modelValue.slice()
+  const i = list.findIndex((x) => x.slotId === slotId)
+  if (i < 0) return
+  list[i] = { ...list[i], ...partial }
+  setList(list)
 }
 
 function add() {
-  emit('update:modelValue', [...props.modelValue, emptyDual()])
+  setList([...props.modelValue, createEmptyDual()])
 }
 
-function remove(i) {
-  const next = props.modelValue.slice()
-  next.splice(i, 1)
-  emit('update:modelValue', next)
+function removeBySlotId(slotId) {
+  cancelSlotUpload(slotId)
+  setList(props.modelValue.filter((x) => x.slotId !== slotId))
+  const next = new Set(selected.value)
+  next.delete(slotId)
+  selected.value = next
+}
+
+function removeOne(item) {
+  if (!item?.slotId) return
+  if (!confirm('确定移除该图片？')) return
+  removeBySlotId(item.slotId)
+}
+
+function removeSelected() {
+  const ids = [...selected.value]
+  if (!ids.length) return
+  if (!confirm(`确定删除所选 ${ids.length} 张？`)) return
+  for (const id of ids) cancelSlotUpload(id)
+  setList(props.modelValue.filter((x) => !ids.includes(x.slotId)))
   clearSelection()
-}
-
-function removeOne(i) {
-  if (!confirm(`确定移除 #${i + 1}？`)) return
-  remove(i)
 }
 
 function move(i, delta) {
@@ -227,14 +267,45 @@ function move(i, delta) {
   const next = props.modelValue.slice()
   const [row] = next.splice(i, 1)
   next.splice(j, 0, row)
-  emit('update:modelValue', next)
+  setList(next)
   clearSelection()
 }
 
+function startUpload(item, file) {
+  if (!item?.slotId || !file) return
+  enqueueFileUpload({
+    slotId: item.slotId,
+    file,
+    category: props.category,
+    patch: (partial) => patchSlot(item.slotId, partial),
+  })
+}
+
+function retry(item) {
+  if (!item?.slotId) return
+  if (item.pending?.original && item.pending?.thumb) {
+    enqueuePendingUpload({
+      slotId: item.slotId,
+      pending: item.pending,
+      category: props.category,
+      patch: (partial) => patchSlot(item.slotId, partial),
+    })
+    return
+  }
+  error.value = '请重新选择图片'
+}
+
+function onReplaceFile(item, e) {
+  const file = e.target.files?.[0]
+  e.target.value = ''
+  if (!file || !item) return
+  startUpload(item, file)
+}
+
 function onThumbClick(i, item) {
-  if (processing.value || slotBusy.value !== null) return
+  if (picking.value || isBusy(item)) return
   if (!cellPreview(item)) {
-    emptyPickIndex.value = i
+    emptyPickSlotId.value = item.slotId
     emptyPickInput.value?.click()
     return
   }
@@ -254,49 +325,15 @@ function onKeydown(e) {
 onMounted(() => window.addEventListener('keydown', onKeydown))
 onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
-async function applyFileToSlot(i, file) {
-  if (!file || !file.type?.startsWith('image/')) return
-  slotBusy.value = i
-  error.value = ''
-  try {
-    const pair = await processDualImage(file)
-    const cur = props.modelValue[i] || emptyDual()
-    update(i, {
-      thumb: cur.thumb || '',
-      original: cur.original || '',
-      pending: pair,
-    })
-  } catch (err) {
-    error.value = err.message || '图片处理失败'
-  } finally {
-    slotBusy.value = null
-  }
-}
-
-async function onReplaceFile(i, e) {
+function onEmptyPickFile(e) {
   const file = e.target.files?.[0]
   e.target.value = ''
-  if (!file) return
-  await applyFileToSlot(i, file)
-}
-
-async function onEmptyPickFile(e) {
-  const file = e.target.files?.[0]
-  e.target.value = ''
-  const i = emptyPickIndex.value
-  emptyPickIndex.value = null
-  if (i == null || !file) return
-  await applyFileToSlot(i, file)
-}
-
-function removeSelected() {
-  const idxs = [...selected.value].sort((a, b) => b - a)
-  if (!idxs.length) return
-  if (!confirm(`确定删除所选 ${idxs.length} 张？`)) return
-  const next = props.modelValue.slice()
-  for (const i of idxs) next.splice(i, 1)
-  emit('update:modelValue', next)
-  clearSelection()
+  const slotId = emptyPickSlotId.value
+  emptyPickSlotId.value = null
+  if (!slotId || !file) return
+  const item = props.modelValue.find((x) => x.slotId === slotId)
+  if (!item) return
+  startUpload(item, file)
 }
 
 async function onBatchFiles(e) {
@@ -306,35 +343,37 @@ async function onBatchFiles(e) {
   e.target.value = ''
   if (!files.length) return
 
-  processing.value = true
+  picking.value = true
   error.value = ''
-  progressDone.value = 0
-  progressTotal.value = files.length
-  let list = props.modelValue.slice()
   try {
+    const added = files.map(() => createEmptyDual())
+    setList([...props.modelValue, ...added])
+    await nextTick()
     for (let i = 0; i < files.length; i++) {
-      const file = files[i]
-      try {
-        const pair = await processDualImage(file)
-        list = [...list, { thumb: '', original: '', pending: pair }]
-        emit('update:modelValue', list)
-      } catch (err) {
-        error.value = err.message || `第 ${i + 1} 张处理失败`
-        break
-      }
-      progressDone.value = i + 1
+      enqueueFileUpload({
+        slotId: added[i].slotId,
+        file: files[i],
+        category: props.category,
+        patch: (partial) => patchSlot(added[i].slotId, partial),
+      })
     }
+  } catch (err) {
+    error.value = err.message || '批量添加失败'
   } finally {
-    processing.value = false
-    progressDone.value = 0
-    progressTotal.value = 0
+    picking.value = false
   }
 }
 
 onBeforeUnmount(() => {
+  for (const item of props.modelValue || []) {
+    if (item?.slotId) cancelSlotUpload(item.slotId)
+  }
   for (const url of blobUrlCache.values()) revokeObjectUrl(url)
   blobUrlCache.clear()
 })
+
+// ensure queue singleton exists
+getSharedUploadQueue()
 </script>
 
 <style scoped>
@@ -515,6 +554,12 @@ onBeforeUnmount(() => {
 .gallery-badge {
   font-size: 0.7rem;
   color: var(--accent, #6ea8fe);
+  line-height: 1.3;
+  word-break: break-all;
+}
+
+.gallery-badge.error {
+  color: #ff8f7a;
 }
 
 .lightbox {

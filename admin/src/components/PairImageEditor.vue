@@ -13,12 +13,14 @@
           :model-value="pair.render"
           :label="`效果图 #${i + 1}（可选）`"
           hint="至少上传效果图或实景图一侧"
+          :category="category"
           @update:model-value="(v) => updateField(i, 'render', v)"
         />
         <DualImageField
           :model-value="pair.real"
           :label="`实景图 #${i + 1}（可选）`"
           hint=""
+          :category="category"
           @update:model-value="(v) => updateField(i, 'real', v)"
         />
       </div>
@@ -42,20 +44,19 @@
 
 <script setup>
 import DualImageField from '@/components/DualImageField.vue'
+import { createEmptyDual } from '@/utils/dualSlot'
+import { cancelSlotUpload } from '@/utils/imageUploadQueue'
 
 const props = defineProps({
   modelValue: { type: Array, default: () => [] },
   title: { type: String, default: '效果图 / 实景图' },
+  category: { type: String, default: 'portfolio' },
 })
 
 const emit = defineEmits(['update:modelValue'])
 
-function emptyDual() {
-  return { thumb: '', original: '', pending: null }
-}
-
 function emptyPair() {
-  return { render: emptyDual(), real: emptyDual() }
+  return { render: createEmptyDual(), real: createEmptyDual() }
 }
 
 function updateField(i, key, val) {
@@ -69,6 +70,9 @@ function add() {
 }
 
 function remove(i) {
+  const row = props.modelValue[i]
+  if (row?.render?.slotId) cancelSlotUpload(row.render.slotId)
+  if (row?.real?.slotId) cancelSlotUpload(row.real.slotId)
   const next = props.modelValue.slice()
   next.splice(i, 1)
   emit('update:modelValue', next)

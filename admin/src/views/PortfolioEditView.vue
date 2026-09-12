@@ -3,7 +3,7 @@
     <div class="header">
       <div>
         <h1 class="page-title">{{ isNew ? '新建作品' : '编辑作品' }}</h1>
-        <p class="page-sub">封面与作品图在提交时上传</p>
+        <p class="page-sub">图片选择后自动上传；全部就绪后再保存</p>
       </div>
       <router-link class="btn btn-ghost" :to="`/portfolios/${listCategory}`">返回列表</router-link>
     </div>
@@ -40,15 +40,16 @@
         <textarea id="heartFlow" v-model="form.heartFlow" rows="5" />
       </div>
 
-      <DualImageField v-model="form.cover" label="封面" />
+      <DualImageField v-model="form.cover" label="封面" category="portfolio" />
 
-      <ImageListEditor v-model="form.images" title="作品图" />
+      <ImageListEditor v-model="form.images" title="作品图" category="portfolio" />
 
       <div class="form-actions">
-        <button class="btn btn-primary" type="submit" :disabled="saving">
+        <button class="btn btn-primary" type="submit" :disabled="saving || !!blockingReason">
           {{ savingLabel }}
         </button>
       </div>
+      <p v-if="blockingReason" class="form-block-hint">{{ blockingReason }}</p>
     </form>
 
     <p v-else class="muted">加载中…</p>
@@ -64,31 +65,10 @@ import {
   createPortfolio,
   getPortfolio,
   putPortfolioImages,
-  resolveDualImage,
   updatePortfolio,
 } from '@/api/client'
 import { PORTFOLIO_CATEGORIES } from '@/constants/portfolioCategories'
-import { mapPool } from '@/utils/mapPool'
-
-const UPLOAD_CONCURRENCY = 3
-
-function emptyDual(src) {
-  return {
-    thumb: src?.thumb || '',
-    original: src?.original || '',
-    pending: null,
-  }
-}
-
-function isEmptyDual(d) {
-  if (!d) return true
-  if (d.pending) return false
-  return !d.thumb && !d.original
-}
-
-function needsUpload(d) {
-  return !!(d?.pending?.original && d?.pending?.thumb)
-}
+import { createEmptyDual, dualsBlockingReason, isEmptyDual } from '@/utils/dualSlot'
 
 const route = useRoute()
 const router = useRouter()
@@ -98,17 +78,9 @@ const categories = PORTFOLIO_CATEGORIES
 
 const loading = ref(!isNew.value)
 const saving = ref(false)
-const uploadDone = ref(0)
-const uploadTotal = ref(0)
 const loadError = ref('')
 const message = ref('')
 const messageOk = ref(false)
-
-const savingLabel = computed(() => {
-  if (!saving.value) return '保存'
-  if (uploadTotal.value > 0) return `上传中 ${uploadDone.value}/${uploadTotal.value}`
-  return '保存中…'
-})
 
 const form = reactive({
   category: route.params.category || 'residential',
@@ -116,9 +88,26 @@ const form = reactive({
   area: '',
   style: '',
   heartFlow: '',
-  cover: emptyDual(),
+  cover: createEmptyDual(),
   images: [],
 })
+
+const blockingReason = computed(() =>
+  dualsBlockingReason([form.cover, ...(form.images || [])]),
+)
+
+const savingLabel = computed(() => {
+  if (!saving.value) return '保存'
+  return '保存中…'
+})
+
+function toPayloadDual(d) {
+  if (isEmptyDual(d)) return { thumb: '', original: '' }
+  return {
+    thumb: d.thumb || '',
+    original: d.original || '',
+  }
+}
 
 function applyPortfolio(data) {
   form.category = data?.category || route.params.category || 'residential'
@@ -126,8 +115,8 @@ function applyPortfolio(data) {
   form.area = data?.area || ''
   form.style = data?.style || ''
   form.heartFlow = data?.heartFlow || ''
-  form.cover = emptyDual(data?.cover)
-  form.images = (data?.images || []).map((img) => emptyDual(img))
+  form.cover = createEmptyDual(data?.cover)
+  form.images = (data?.images || []).map((img) => createEmptyDual(img))
 }
 
 onMounted(async () => {
@@ -146,46 +135,21 @@ onMounted(async () => {
   }
 })
 
-async function resolveImages(list, onProgress) {
-  const items = (list || []).filter((item) => !isEmptyDual(item))
-  const pendingCount = items.filter(needsUpload).length
-  let done = 0
-  if (onProgress) onProgress(0, pendingCount)
-
-  return mapPool(items, UPLOAD_CONCURRENCY, async (item) => {
-    const result = await resolveDualImage(item, 'portfolio')
-    if (needsUpload(item)) {
-      done += 1
-      if (onProgress) onProgress(done, pendingCount)
-    }
-    return result
-  })
-}
-
 async function onSubmit() {
+  const block = blockingReason.value
+  if (block) {
+    messageOk.value = false
+    message.value = block
+    return
+  }
+
   saving.value = true
   message.value = ''
-  uploadDone.value = 0
-  uploadTotal.value = 0
   try {
-    const pendingGallery = (form.images || []).filter((item) => !isEmptyDual(item) && needsUpload(item)).length
-    const pendingCover = needsUpload(form.cover) ? 1 : 0
-    uploadTotal.value = pendingCover + pendingGallery
-
-    let coverDone = 0
-    const cover = await resolveDualImage(form.cover, 'portfolio')
-    if (pendingCover) {
-      coverDone = 1
-      uploadDone.value = coverDone
-    }
-
-    const images = await resolveImages(form.images, (done, total) => {
-      uploadDone.value = coverDone + done
-      uploadTotal.value = pendingCover + total
-    })
-
-    uploadTotal.value = 0
-    uploadDone.value = 0
+    const cover = toPayloadDual(form.cover)
+    const images = (form.images || [])
+      .filter((item) => !isEmptyDual(item))
+      .map((item) => toPayloadDual(item))
 
     const base = {
       slug: '',
@@ -219,8 +183,6 @@ async function onSubmit() {
     message.value = err.message || '保存失败'
   } finally {
     saving.value = false
-    uploadDone.value = 0
-    uploadTotal.value = 0
   }
 }
 </script>
@@ -239,5 +201,11 @@ async function onSubmit() {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+}
+
+.form-block-hint {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.85rem;
 }
 </style>

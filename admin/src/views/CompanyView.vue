@@ -54,15 +54,16 @@
       </div>
 
       <div class="grid-2">
-        <DualImageField v-model="form.logo" label="Logo（方）" />
-        <DualImageField v-model="form.logoHor" label="Logo（横）" />
+        <DualImageField v-model="form.logo" label="Logo（方）" category="logo" />
+        <DualImageField v-model="form.logoHor" label="Logo（横）" category="logo" />
       </div>
 
       <div class="form-actions">
-        <button class="btn btn-primary" type="submit" :disabled="saving">
+        <button class="btn btn-primary" type="submit" :disabled="saving || !!blockingReason">
           {{ saving ? '保存中…' : '保存' }}
         </button>
       </div>
+      <p v-if="blockingReason" class="form-block-hint">{{ blockingReason }}</p>
     </form>
 
     <p v-else class="muted">加载中…</p>
@@ -70,9 +71,10 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import DualImageField from '@/components/DualImageField.vue'
-import { getCompany, putCompany, resolveDualImage } from '@/api/client'
+import { getCompany, putCompany } from '@/api/client'
+import { createEmptyDual, dualsBlockingReason } from '@/utils/dualSlot'
 
 const loading = ref(true)
 const saving = ref(false)
@@ -90,17 +92,11 @@ const form = reactive({
   awards: '',
   phone: '',
   wechat: '',
-  logo: emptyDual(),
-  logoHor: emptyDual(),
+  logo: createEmptyDual(),
+  logoHor: createEmptyDual(),
 })
 
-function emptyDual(src) {
-  return {
-    thumb: src?.thumb || '',
-    original: src?.original || '',
-    pending: null,
-  }
-}
+const blockingReason = computed(() => dualsBlockingReason([form.logo, form.logoHor]))
 
 function applyCompany(data) {
   form.introTitle = data?.introTitle || ''
@@ -111,8 +107,8 @@ function applyCompany(data) {
   form.awards = data?.awards || ''
   form.phone = data?.phone || ''
   form.wechat = data?.wechat || ''
-  form.logo = emptyDual(data?.logo)
-  form.logoHor = emptyDual(data?.logoHor)
+  form.logo = createEmptyDual(data?.logo)
+  form.logoHor = createEmptyDual(data?.logoHor)
   if (typeof data?.aboutViewCount === 'number') {
     aboutViewCount.value = data.aboutViewCount
   }
@@ -133,8 +129,15 @@ async function onSubmit() {
   saving.value = true
   message.value = ''
   try {
-    const logo = await resolveDualImage(form.logo, 'logo')
-    const logoHor = await resolveDualImage(form.logoHor, 'logo')
+    if (blockingReason.value) throw new Error(blockingReason.value)
+    const logo = {
+      thumb: form.logo.thumb || '',
+      original: form.logo.original || '',
+    }
+    const logoHor = {
+      thumb: form.logoHor.thumb || '',
+      original: form.logoHor.original || '',
+    }
     const payload = {
       introTitle: form.introTitle,
       introBody: form.introBody,
@@ -169,5 +172,11 @@ async function onSubmit() {
   padding: 0.95rem 1.2rem;
   margin-bottom: 1rem;
   font-size: 0.95rem;
+}
+
+.form-block-hint {
+  margin: 0.5rem 0 0;
+  color: var(--danger);
+  font-size: 0.85rem;
 }
 </style>

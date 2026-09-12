@@ -17,7 +17,7 @@
         <input id="title" v-model.trim="form.title" required maxlength="255" placeholder="请输入新闻标题" />
       </div>
 
-      <DualImageField v-model="form.image" label="封面图（必填）" />
+      <DualImageField v-model="form.image" label="封面图（必填）" category="activity" />
 
       <div class="field">
         <label>正文</label>
@@ -25,10 +25,11 @@
       </div>
 
       <div class="form-actions">
-        <button class="btn btn-primary" type="submit" :disabled="saving">
+        <button class="btn btn-primary" type="submit" :disabled="saving || !!blockingReason">
           {{ saving ? '保存中…' : '保存' }}
         </button>
       </div>
+      <p v-if="blockingReason" class="form-block-hint">{{ blockingReason }}</p>
     </form>
 
     <p v-else class="muted">加载中…</p>
@@ -40,21 +41,8 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import DualImageField from '@/components/DualImageField.vue'
 import RichTextEditor from '@/components/RichTextEditor.vue'
-import { createActivity, getActivity, resolveDualImage, updateActivity } from '@/api/client'
-
-function emptyDual(src) {
-  return {
-    thumb: src?.thumb || '',
-    original: src?.original || '',
-    pending: null,
-  }
-}
-
-function isEmptyDual(d) {
-  if (!d) return true
-  if (d.pending) return false
-  return !d.thumb && !d.original
-}
+import { createActivity, getActivity, updateActivity } from '@/api/client'
+import { createEmptyDual, dualsBlockingReason, isEmptyDual } from '@/utils/dualSlot'
 
 const route = useRoute()
 const router = useRouter()
@@ -69,13 +57,15 @@ const messageOk = ref(false)
 const form = reactive({
   title: '',
   bodyHtml: '',
-  image: emptyDual(),
+  image: createEmptyDual(),
 })
+
+const blockingReason = computed(() => dualsBlockingReason([form.image]))
 
 function apply(data) {
   form.title = data?.title || ''
   form.bodyHtml = data?.bodyHtml || ''
-  form.image = emptyDual(data?.image)
+  form.image = createEmptyDual(data?.image)
 }
 
 onMounted(async () => {
@@ -98,8 +88,12 @@ async function onSubmit() {
   message.value = ''
   try {
     if (!form.title.trim()) throw new Error('请填写新闻标题')
+    if (blockingReason.value) throw new Error(blockingReason.value)
     if (isEmptyDual(form.image)) throw new Error('请上传封面图')
-    const image = await resolveDualImage(form.image, 'activity')
+    const image = {
+      thumb: form.image.thumb || '',
+      original: form.image.original || '',
+    }
     if (!image.thumb && !image.original) throw new Error('请上传封面图')
     const payload = {
       title: form.title.trim(),
@@ -140,5 +134,11 @@ async function onSubmit() {
   flex-direction: column;
   gap: 1rem;
   max-width: 720px;
+}
+
+.form-block-hint {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.85rem;
 }
 </style>
