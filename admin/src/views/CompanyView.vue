@@ -60,7 +60,7 @@
 
       <div class="form-actions">
         <button class="btn btn-primary" type="submit" :disabled="saving || !!blockingReason">
-          {{ saving ? '保存中…' : '保存' }}
+          {{ saving ? '上传并保存中…' : '保存' }}
         </button>
       </div>
       <p v-if="blockingReason" class="form-block-hint">{{ blockingReason }}</p>
@@ -75,6 +75,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import DualImageField from '@/components/DualImageField.vue'
 import { getCompany, putCompany } from '@/api/client'
 import { createEmptyDual, dualsBlockingReason } from '@/utils/dualSlot'
+import { flushPendingDualUploads } from '@/utils/imageUploadQueue'
 
 const loading = ref(true)
 const saving = ref(false)
@@ -130,6 +131,18 @@ async function onSubmit() {
   message.value = ''
   try {
     if (blockingReason.value) throw new Error(blockingReason.value)
+    await flushPendingDualUploads([
+      {
+        dual: form.logo,
+        category: 'logo',
+        patch: (partial) => Object.assign(form.logo, partial),
+      },
+      {
+        dual: form.logoHor,
+        category: 'logo',
+        patch: (partial) => Object.assign(form.logoHor, partial),
+      },
+    ])
     const logo = {
       thumb: form.logo.thumb || '',
       original: form.logo.original || '',

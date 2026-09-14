@@ -2,6 +2,7 @@ export const SLOT_STATUS = {
   IDLE: 'idle',
   COMPRESSING: 'compressing',
   QUEUED: 'queued',
+  READY: 'ready',
   UPLOADING: 'uploading',
   DONE: 'done',
   ERROR: 'error',
@@ -18,14 +19,21 @@ export function createEmptyDual(src) {
   const thumb = src?.thumb || ''
   const original = src?.original || ''
   const hasRemote = !!(thumb || original)
+  const pending = src?.pending || null
+  let status = src?.status
+  if (!status) {
+    if (pending?.original && pending?.thumb) status = SLOT_STATUS.READY
+    else if (hasRemote) status = SLOT_STATUS.DONE
+    else status = SLOT_STATUS.IDLE
+  }
   return {
     slotId: src?.slotId || newSlotId(),
     thumb,
     original,
-    pending: src?.pending || null,
+    pending,
     localPreview: src?.localPreview || '',
     uploadProgress: typeof src?.uploadProgress === 'number' ? src.uploadProgress : null,
-    status: src?.status || (hasRemote ? SLOT_STATUS.DONE : SLOT_STATUS.IDLE),
+    status,
     error: src?.error || '',
   }
 }
@@ -33,7 +41,12 @@ export function createEmptyDual(src) {
 export function isEmptyDual(d) {
   if (!d) return true
   if (d.pending || d.localPreview) return false
-  if (d.status === SLOT_STATUS.COMPRESSING || d.status === SLOT_STATUS.QUEUED || d.status === SLOT_STATUS.UPLOADING) {
+  if (
+    d.status === SLOT_STATUS.COMPRESSING ||
+    d.status === SLOT_STATUS.QUEUED ||
+    d.status === SLOT_STATUS.READY ||
+    d.status === SLOT_STATUS.UPLOADING
+  ) {
     return false
   }
   return !d.thumb && !d.original
@@ -46,6 +59,8 @@ export function dualStatusLabel(d) {
       return '处理中…'
     case SLOT_STATUS.QUEUED:
       return '排队中'
+    case SLOT_STATUS.READY:
+      return '待保存'
     case SLOT_STATUS.UPLOADING:
       if (typeof d.uploadProgress === 'number' && d.uploadProgress >= 0) {
         return `上传中 ${d.uploadProgress}%`
@@ -56,7 +71,7 @@ export function dualStatusLabel(d) {
     case SLOT_STATUS.ERROR:
       return d.error ? `失败：${d.error}` : '失败'
     default:
-      if (d.pending) return '排队中'
+      if (d.pending) return '待保存'
       if (d.thumb || d.original) return '已上传'
       return ''
   }
@@ -67,6 +82,7 @@ export function dualStatusTone(d) {
   if (!d) return ''
   switch (d.status) {
     case SLOT_STATUS.QUEUED:
+    case SLOT_STATUS.READY:
       return 'wait'
     case SLOT_STATUS.COMPRESSING:
     case SLOT_STATUS.UPLOADING:
@@ -92,7 +108,8 @@ export function dualIsBlockingSave(d) {
   ) {
     return true
   }
-  return !!(d.pending && d.status !== SLOT_STATUS.DONE)
+  // READY with pending is allowed — save will flush uploads
+  return false
 }
 
 export function dualsBlockingReason(duals) {
@@ -101,7 +118,7 @@ export function dualsBlockingReason(duals) {
     return '有图片上传失败，请重试或删除后再保存'
   }
   if (list.some((d) => dualIsBlockingSave(d))) {
-    return '仍有图片上传中，请稍候再保存'
+    return '仍有图片处理中，请稍候再保存'
   }
   return ''
 }

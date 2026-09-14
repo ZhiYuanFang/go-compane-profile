@@ -3,7 +3,7 @@
     <div class="header">
       <div>
         <h1 class="page-title">{{ isNew ? '新建作品' : '编辑作品' }}</h1>
-        <p class="page-sub">图片选择后自动上传；全部就绪后再保存</p>
+        <p class="page-sub">图片选择后本地处理；保存时上传并写入</p>
       </div>
       <router-link class="btn btn-ghost" :to="`/portfolios/${listCategory}`">返回列表</router-link>
     </div>
@@ -69,6 +69,7 @@ import {
 } from '@/api/client'
 import { PORTFOLIO_CATEGORIES } from '@/constants/portfolioCategories'
 import { createEmptyDual, dualsBlockingReason, isEmptyDual } from '@/utils/dualSlot'
+import { flushPendingDualUploads } from '@/utils/imageUploadQueue'
 
 const route = useRoute()
 const router = useRouter()
@@ -98,7 +99,7 @@ const blockingReason = computed(() =>
 
 const savingLabel = computed(() => {
   if (!saving.value) return '保存'
-  return '保存中…'
+  return '上传并保存中…'
 })
 
 function toPayloadDual(d) {
@@ -117,6 +118,22 @@ function applyPortfolio(data) {
   form.heartFlow = data?.heartFlow || ''
   form.cover = createEmptyDual(data?.cover)
   form.images = (data?.images || []).map((img) => createEmptyDual(img))
+}
+
+async function flushImages() {
+  const entries = [
+    {
+      dual: form.cover,
+      category: 'portfolio',
+      patch: (partial) => Object.assign(form.cover, partial),
+    },
+    ...(form.images || []).map((img) => ({
+      dual: img,
+      category: 'portfolio',
+      patch: (partial) => Object.assign(img, partial),
+    })),
+  ]
+  await flushPendingDualUploads(entries)
 }
 
 onMounted(async () => {
@@ -146,6 +163,8 @@ async function onSubmit() {
   saving.value = true
   message.value = ''
   try {
+    await flushImages()
+
     const cover = toPayloadDual(form.cover)
     const images = (form.images || [])
       .filter((item) => !isEmptyDual(item))

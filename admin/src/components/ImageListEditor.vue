@@ -35,7 +35,7 @@
     </div>
 
     <p v-if="error" class="image-list-error">{{ error }}</p>
-    <div v-if="!listAcc.length" class="muted empty-list">暂无图片，可批量选择（选后自动上传）</div>
+    <div v-if="!listAcc.length" class="muted empty-list">暂无图片，可批量选择（选后本地处理，保存时上传）</div>
 
     <div v-else class="gallery-grid">
       <div
@@ -209,10 +209,10 @@ function revokeLocalPreview(url) {
 
 function cellPreview(item) {
   if (!item) return ''
+  if (item.localPreview) return item.localPreview
+  if (item.pending?.thumb) return getBlobUrl(item.pending.thumb)
   if (item.thumb) return item.thumb
   if (item.original) return item.original
-  if (item.pending?.thumb) return getBlobUrl(item.pending.thumb)
-  if (item.localPreview) return item.localPreview
   return ''
 }
 

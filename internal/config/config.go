@@ -94,8 +94,8 @@ func LoadAppConfig() AppConfig {
 			AdminSessionSecret: sessionSecret,
 			OSSAccessKeyID:     os.Getenv("OSS_ACCESS_KEY_ID"),
 			OSSAccessKeySecret: os.Getenv("OSS_ACCESS_KEY_SECRET"),
-			OSSBucket:          envOr("OSS_BUCKET", "pang-bao"),
-			OSSEndpoint:        envOr("OSS_ENDPOINT", "oss-cn-beijing.aliyuncs.com"),
+			OSSBucket:          envOr("OSS_BUCKET", "caidoukeji"),
+			OSSEndpoint:        envOr("OSS_ENDPOINT", "oss-cn-hangzhou-internal.aliyuncs.com"),
 			OSSPrefix:          prefix,
 			CDNBase:            cdn,
 		}

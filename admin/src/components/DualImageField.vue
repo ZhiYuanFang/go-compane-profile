@@ -102,11 +102,10 @@ const props = defineProps({
   label: { type: String, default: '图片' },
   hint: {
     type: String,
-    default: '可拖拽图片到此处；选择后自动压缩并上传（原图≤3MB，缩略≤0.5MB）',
+    default: '可拖拽图片到此处；选择后本地压缩，保存时上传（原图≤3MB，缩略≤0.5MB）',
   },
   disabled: { type: Boolean, default: false },
   category: { type: String, default: 'general' },
-  eagerUpload: { type: Boolean, default: true },
 })
 
 const emit = defineEmits(['update:modelValue'])

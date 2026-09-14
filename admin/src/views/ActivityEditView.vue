@@ -26,7 +26,7 @@
 
       <div class="form-actions">
         <button class="btn btn-primary" type="submit" :disabled="saving || !!blockingReason">
-          {{ saving ? '保存中…' : '保存' }}
+          {{ saving ? '上传并保存中…' : '保存' }}
         </button>
       </div>
       <p v-if="blockingReason" class="form-block-hint">{{ blockingReason }}</p>
@@ -43,6 +43,7 @@ import DualImageField from '@/components/DualImageField.vue'
 import RichTextEditor from '@/components/RichTextEditor.vue'
 import { createActivity, getActivity, updateActivity } from '@/api/client'
 import { createEmptyDual, dualsBlockingReason, isEmptyDual } from '@/utils/dualSlot'
+import { flushPendingDualUploads } from '@/utils/imageUploadQueue'
 
 const route = useRoute()
 const router = useRouter()
@@ -90,6 +91,13 @@ async function onSubmit() {
     if (!form.title.trim()) throw new Error('请填写新闻标题')
     if (blockingReason.value) throw new Error(blockingReason.value)
     if (isEmptyDual(form.image)) throw new Error('请上传封面图')
+    await flushPendingDualUploads([
+      {
+        dual: form.image,
+        category: 'activity',
+        patch: (partial) => Object.assign(form.image, partial),
+      },
+    ])
     const image = {
       thumb: form.image.thumb || '',
       original: form.image.original || '',

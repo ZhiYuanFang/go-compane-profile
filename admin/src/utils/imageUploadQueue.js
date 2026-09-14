@@ -82,7 +82,8 @@ export function cancelSlotUpload(slotId) {
 }
 
 /**
- * HTTP-only upload of existing pending blobs (upload pool concurrency 3).
+ * HTTP-only upload of existing pending blobs.
+ * @returns {Promise<object|void>} resolves with done patch, rejects on upload error
  */
 export function enqueuePendingUpload({
   slotId,
@@ -91,55 +92,71 @@ export function enqueuePendingUpload({
   patch,
   queue = getSharedUploadQueue(),
 }) {
-  if (!slotId || !pending?.original || !pending?.thumb) return
+  if (!slotId || !pending?.original || !pending?.thumb) {
+    return Promise.resolve()
+  }
 
   patch({ status: SLOT_STATUS.QUEUED, error: '', uploadProgress: null })
 
-  queue.enqueue(slotId, async (signal) => {
-    try {
-      if (queue.isCancelled(slotId) || signal.aborted) return
-      patch({ status: SLOT_STATUS.UPLOADING, error: '', uploadProgress: 0 })
-      const result = await uploadDualImage({
-        original: pending.original,
-        thumb: pending.thumb,
-        category,
-        signal,
-        onProgress: (pct) => {
-          if (queue.isCancelled(slotId) || signal.aborted) return
-          patch({ uploadProgress: pct })
-        },
-      })
-      if (queue.isCancelled(slotId) || signal.aborted) return
+  return new Promise((resolve, reject) => {
+    queue.enqueue(slotId, async (signal) => {
+      try {
+        if (queue.isCancelled(slotId) || signal.aborted) {
+          resolve()
+          return
+        }
+        patch({ status: SLOT_STATUS.UPLOADING, error: '', uploadProgress: 0 })
+        const result = await uploadDualImage({
+          original: pending.original,
+          thumb: pending.thumb,
+          category,
+          signal,
+          onProgress: (pct) => {
+            if (queue.isCancelled(slotId) || signal.aborted) return
+            patch({ uploadProgress: pct })
+          },
+        })
+        if (queue.isCancelled(slotId) || signal.aborted) {
+          resolve()
+          return
+        }
 
-      const donePatch = {
-        thumb: result.thumbUrl || result.thumb || '',
-        original: result.originalUrl || result.original || '',
-        pending: null,
-        status: SLOT_STATUS.DONE,
-        error: '',
-        localPreview: '',
-        uploadProgress: null,
+        const donePatch = {
+          thumb: result.thumbUrl || result.thumb || '',
+          original: result.originalUrl || result.original || '',
+          pending: null,
+          status: SLOT_STATUS.DONE,
+          error: '',
+          localPreview: '',
+          uploadProgress: null,
+        }
+        patch(donePatch)
+        resolve(donePatch)
+      } catch (err) {
+        if (queue.isCancelled(slotId) || signal.aborted || err?.name === 'AbortError') {
+          resolve()
+          return
+        }
+        const message = err?.message || '上传失败'
+        patch({
+          status: SLOT_STATUS.ERROR,
+          error: message,
+          uploadProgress: null,
+        })
+        reject(err instanceof Error ? err : new Error(message))
       }
-      patch(donePatch)
-    } catch (err) {
-      if (queue.isCancelled(slotId) || signal.aborted || err?.name === 'AbortError') return
-      patch({
-        status: SLOT_STATUS.ERROR,
-        error: err?.message || '上传失败',
-        uploadProgress: null,
-      })
-    }
+    })
   })
 }
 
 /**
- * Compress in compress pool, then enqueue HTTP upload.
+ * Compress in compress pool and leave slot READY with pending blobs (no OSS upload).
  * Sets instant localPreview from the selected File unless skipLocalPreviewSetup.
  */
 export function enqueueFileUpload({
   slotId,
   file,
-  category,
+  category: _category,
   patch,
   prevLocalPreview = '',
   skipLocalPreviewSetup = false,
@@ -158,12 +175,14 @@ export function enqueueFileUpload({
       status: SLOT_STATUS.QUEUED,
       error: '',
       pending: null,
+      uploadProgress: null,
     })
   } else {
     patch({
       status: SLOT_STATUS.QUEUED,
       error: '',
       pending: null,
+      uploadProgress: null,
     })
   }
 
@@ -174,12 +193,11 @@ export function enqueueFileUpload({
       const pair = await processDualImage(file)
       if (compressQueue.isCancelled(slotId) || signal.aborted) return
 
-      patch({ pending: pair, error: '' })
-      enqueuePendingUpload({
-        slotId,
+      patch({
         pending: pair,
-        category,
-        patch,
+        error: '',
+        status: SLOT_STATUS.READY,
+        uploadProgress: null,
       })
     } catch (err) {
       if (compressQueue.isCancelled(slotId) || signal.aborted || err?.name === 'AbortError') return
@@ -192,8 +210,32 @@ export function enqueueFileUpload({
 }
 
 /**
- * Shared entry for gallery/cover: instant preview + compress pool + upload pool.
+ * Shared entry for gallery/cover: instant preview + compress only (upload deferred to save).
  */
 export function startSlotPipeline(opts) {
   return enqueueFileUpload(opts)
+}
+
+/**
+ * Upload all duals that still have pending blobs. Resolves when all succeed; rejects on first failure.
+ * Successful slots remain DONE so a later retry only uploads remaining failures/pendings.
+ *
+ * @param {{ dual: object, category: string, patch: (partial: object) => void }[]} entries
+ */
+export async function flushPendingDualUploads(entries) {
+  const list = (entries || []).filter(
+    (e) => e?.dual?.slotId && e?.dual?.pending?.original && e?.dual?.pending?.thumb,
+  )
+  if (!list.length) return
+
+  await Promise.all(
+    list.map(({ dual, category, patch }) =>
+      enqueuePendingUpload({
+        slotId: dual.slotId,
+        pending: dual.pending,
+        category: category || 'general',
+        patch,
+      }),
+    ),
+  )
 }
