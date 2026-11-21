@@ -1,28 +1,56 @@
 import { uploadDualImage } from '@/api/client'
 import { processDualImage, revokeObjectUrl } from '@/utils/imageProcess'
+import { createPreviewObjectUrl } from '@/utils/previewImage'
 import { SLOT_STATUS } from '@/utils/dualSlot'
 
-const DEFAULT_CONCURRENCY = 1
+/** Desktop admin may compress/watermark several images at once. */
+export const COMPRESS_CONCURRENCY = 2
+/** Uploads stay serial: concurrency 3 previously caused gateway 504s. */
+export const UPLOAD_CONCURRENCY = 1
+
+/**
+ * Wait for the browser to finish a paint before starting heavy canvas work, so
+ * newly added local previews are visible first. The timer is a fallback for
+ * background tabs where requestAnimationFrame is throttled.
+ */
+function yieldToPaint() {
+  return new Promise((resolve) => {
+    let settled = false
+    const done = () => {
+      if (settled) return
+      settled = true
+      resolve()
+    }
+    setTimeout(done, 100)
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => setTimeout(done, 0))
+    }
+  })
+}
 
 /**
  * Shared concurrency-limited queue keyed by slotId (used for compress and upload).
  */
-export function createUploadQueue(concurrency = DEFAULT_CONCURRENCY) {
+export function createUploadQueue(concurrency = UPLOAD_CONCURRENCY) {
   const limit = Math.max(1, concurrency)
   /** @type {{ slotId: string, task: (signal: AbortSignal) => Promise<void> }[]} */
   const queue = []
   /** @type {Map<string, AbortController>} */
   const controllers = new Map()
   const cancelled = new Set()
+  /** Slots with a job currently running; avoids overlapping old/new work for one slot. */
+  const activeSlots = new Set()
   let active = 0
 
   function pump() {
     while (active < limit && queue.length) {
-      const job = queue.shift()
-      if (!job) break
-      if (cancelled.has(job.slotId)) continue
+      const index = queue.findIndex((job) => !activeSlots.has(job.slotId))
+      if (index < 0) break
+      const [job] = queue.splice(index, 1)
+      if (!job || cancelled.has(job.slotId)) continue
 
       active += 1
+      activeSlots.add(job.slotId)
       const ac = new AbortController()
       controllers.set(job.slotId, ac)
 
@@ -30,7 +58,8 @@ export function createUploadQueue(concurrency = DEFAULT_CONCURRENCY) {
         .then(() => job.task(ac.signal))
         .catch(() => {})
         .finally(() => {
-          controllers.delete(job.slotId)
+          if (controllers.get(job.slotId) === ac) controllers.delete(job.slotId)
+          activeSlots.delete(job.slotId)
           active -= 1
           pump()
         })
@@ -65,18 +94,37 @@ let sharedUploadQueue = null
 let sharedCompressQueue = null
 
 export function getSharedUploadQueue() {
-  if (!sharedUploadQueue) sharedUploadQueue = createUploadQueue(DEFAULT_CONCURRENCY)
+  if (!sharedUploadQueue) sharedUploadQueue = createUploadQueue(UPLOAD_CONCURRENCY)
   return sharedUploadQueue
 }
 
 export function getSharedCompressQueue() {
-  if (!sharedCompressQueue) sharedCompressQueue = createUploadQueue(DEFAULT_CONCURRENCY)
+  if (!sharedCompressQueue) sharedCompressQueue = createUploadQueue(COMPRESS_CONCURRENCY)
   return sharedCompressQueue
+}
+
+let previewSeq = 0
+/** @type {Map<string, number>} */
+const previewTokenBySlot = new Map()
+
+function beginPreview(slotId) {
+  const token = ++previewSeq
+  previewTokenBySlot.set(slotId, token)
+  return token
+}
+
+function isPreviewCurrent(slotId, token) {
+  return previewTokenBySlot.get(slotId) === token
+}
+
+function invalidatePreview(slotId) {
+  previewTokenBySlot.delete(slotId)
 }
 
 /** Cancel compress + upload work for a slot. */
 export function cancelSlotUpload(slotId) {
   if (!slotId) return
+  invalidatePreview(slotId)
   getSharedCompressQueue().cancel(slotId)
   getSharedUploadQueue().cancel(slotId)
 }
@@ -169,14 +217,26 @@ export function enqueueFileUpload({
 
   if (!skipLocalPreviewSetup) {
     if (prevLocalPreview) revokeObjectUrl(prevLocalPreview)
-    const localPreview = URL.createObjectURL(file)
     patch({
-      localPreview,
+      localPreview: '',
       status: SLOT_STATUS.QUEUED,
       error: '',
       pending: null,
       uploadProgress: null,
     })
+    // Build a small preview off the full-size photo to keep memory bounded.
+    const token = beginPreview(slotId)
+    createPreviewObjectUrl(file)
+      .then((url) => {
+        if (!isPreviewCurrent(slotId, token) || compressQueue.isCancelled(slotId)) {
+          revokeObjectUrl(url)
+          return
+        }
+        patch({ localPreview: url })
+      })
+      .catch(() => {
+        /* preview is optional; pending thumb will show when compression finishes */
+      })
   } else {
     patch({
       status: SLOT_STATUS.QUEUED,
@@ -189,8 +249,16 @@ export function enqueueFileUpload({
   compressQueue.enqueue(slotId, async (signal) => {
     try {
       if (compressQueue.isCancelled(slotId) || signal.aborted) return
+      await yieldToPaint()
+      if (compressQueue.isCancelled(slotId) || signal.aborted) return
       patch({ status: SLOT_STATUS.COMPRESSING, error: '' })
-      const pair = await processDualImage(file, { watermark: category !== 'logo' })
+      const pair = await processDualImage(file, {
+        watermark: category !== 'logo',
+        onWatermarkStart: () => {
+          if (compressQueue.isCancelled(slotId) || signal.aborted) return
+          patch({ status: SLOT_STATUS.WATERMARKING })
+        },
+      })
       if (compressQueue.isCancelled(slotId) || signal.aborted) return
 
       patch({

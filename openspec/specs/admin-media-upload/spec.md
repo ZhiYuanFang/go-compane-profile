@@ -104,8 +104,8 @@ Client and server SHALL both treat the thumbnail maximum as `0.5 * 1024 * 1024` 
 - **WHEN** a thumb size is between `500*1024` and `0.5*1024*1024` bytes and within the compress success bound
 - **THEN** both client acceptance and server validation allow it
 
-### Requirement: Upload and compress concurrency is one
-The shared admin image compress pool and upload pool SHALL each run with a maximum concurrency of 1 (at most one compress job and one HTTP upload in flight at a time across the shared queues).
+### Requirement: Compress concurrency is two and upload concurrency is one
+管理端共享压缩池与上传池 MUST 使用相互独立的并发上限：压缩/水印池最多同时运行 2 个任务（`COMPRESS_CONCURRENCY = 2`），上传池最多同时进行 1 个 HTTP 上传（`UPLOAD_CONCURRENCY = 1`）。压缩任务 MUST NOT 占用上传池槽位。
 
 #### Scenario: Second upload waits for first
 - **WHEN** two slots are ready to upload
@@ -113,9 +113,14 @@ The shared admin image compress pool and upload pool SHALL each run with a maxim
 - **AND** the second starts only after the first completes, fails, or is cancelled
 
 #### Scenario: Second compress waits for first
-- **WHEN** two slots need compression
-- **THEN** only one compression runs at a time
+- **WHEN** more than two slots need compression
+- **THEN** at most two compressions run at a time
+- **AND** the next compression starts only after one completes, fails, or is cancelled
 - **AND** slots waiting for compress MUST still show their local previews if set
+
+#### Scenario: Two compressions run together
+- **WHEN** exactly two slots need compression and none is in flight
+- **THEN** both compressions run concurrently
 
 ### Requirement: Aligned thumbnail size limit
 Client-side image processing SHALL use the same byte ceiling for thumbnail success checks as the compression target of 0.5 MiB (`0.5 * 1024 * 1024` bytes). A thumbnail that successfully finishes compression under that target MUST NOT be rejected solely for exceeding `500 * 1024` bytes.
@@ -133,7 +138,7 @@ Original and thumb max sizes SHALL be derived from the same unit convention as `
 - **THEN** it equals `0.5 * 1024 * 1024` (or an equivalent expression of 0.5 MiB)
 
 ### Requirement: Pending uploads share the serial upload queue
-When resolving multiple pending dual images for a save, the admin client SHALL enqueue them on the shared upload queue with a maximum concurrency of 1. Items that already have remote URLs and no pending blobs SHALL not be uploaded again.
+When resolving multiple pending dual images for a save, the admin client SHALL enqueue them on the shared upload queue with a maximum concurrency of 1, regardless of the compress pool concurrency. Items that already have remote URLs and no pending blobs SHALL not be uploaded again.
 
 #### Scenario: Multiple pending uploads are serialized
 - **WHEN** an admin saves a portfolio with multiple pending gallery images
@@ -193,7 +198,7 @@ The admin upload pipeline SHALL use the streaming endpoint and display the strea
 - **THEN** the slot stores CDN URLs, status becomes uploaded, and progress is cleared
 
 ### Requirement: Compress outside upload queue
-Gallery (and cover when using the shared pipeline) image compression SHALL NOT occupy a slot in the shared upload concurrency pool. Compression SHALL run in a separate limited pool; only the HTTP upload of already-compressed pending blobs SHALL use the upload queue (maximum concurrency 1).
+Gallery (and cover when using the shared pipeline) image compression SHALL NOT occupy a slot in the shared upload concurrency pool. Compression SHALL run in a separate pool with a maximum concurrency of 2; only the HTTP upload of already-compressed pending blobs SHALL use the upload queue with a maximum concurrency of 1.
 
 #### Scenario: Compress while an upload is in progress
 - **WHEN** a slot's compression is pending while another slot's upload is in progress
@@ -205,12 +210,12 @@ Gallery (and cover when using the shared pipeline) image compression SHALL NOT o
 - **THEN** the client enqueues an upload of the compressed original+thumb pair
 - **AND** the upload job does not re-run full dual compression
 
-### Requirement: Serial compress with limited pool
-The client SHALL compress multiple pending files with a maximum concurrency of 1 (matching the shared compress pool). Slots waiting for a compress slot SHALL keep their local preview and a waiting/processing status as appropriate.
+### Requirement: Parallel compress with bounded pool
+The client SHALL compress multiple pending files with a maximum concurrency of 2 in the shared compress pool (`COMPRESS_CONCURRENCY = 2`). Slots waiting for a compress slot SHALL keep their local preview and a waiting/processing status as appropriate.
 
 #### Scenario: Compress pool capped
 - **WHEN** multiple slots need compression at once
-- **THEN** at most one compression runs at a time
+- **THEN** at most two compressions run at a time
 - **AND** remaining slots wait without blocking UI display of their previews
 
 ### Requirement: Cancel aborts compress and upload

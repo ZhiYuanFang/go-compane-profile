@@ -71,8 +71,14 @@
             :disabled="locked"
             @click="onThumbClick(i, item)"
           >
-            <img v-if="cellPreview(item)" :src="cellPreview(item)" :alt="`#${i + 1}`" />
-            <span v-else class="gallery-placeholder">选择图片</span>
+            <img
+              v-if="cellPreview(item)"
+              :src="cellPreview(item)"
+              :alt="`#${i + 1}`"
+              loading="lazy"
+              decoding="async"
+            />
+            <span v-else class="gallery-placeholder">{{ isBusy(item) ? '处理中…' : '选择图片' }}</span>
           </button>
 
           <div v-if="cellPreview(item)" class="gallery-ops" @click.stop>
@@ -156,8 +162,10 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
 import { revokeObjectUrl } from '@/utils/imageProcess'
+import { mapPool } from '@/utils/mapPool'
+import { createPreviewObjectUrl } from '@/utils/previewImage'
 import { fetchRemoteImageFile } from '@/utils/remoteImage'
 import {
   createEmptyDual,
@@ -253,6 +261,7 @@ function cellLightbox(item) {
 function isBusy(item) {
   return (
     item?.status === SLOT_STATUS.COMPRESSING ||
+    item?.status === SLOT_STATUS.WATERMARKING ||
     item?.status === SLOT_STATUS.QUEUED ||
     item?.status === SLOT_STATUS.UPLOADING
   )
@@ -375,6 +384,8 @@ function startUpload(item, file) {
   })
 }
 
+const WATERMARK_FETCH_CONCURRENCY = 4
+
 async function watermarkSelected() {
   if (locked.value || watermarking.value) return
   const targets = selectedWatermarkTargets.value.map((item) => ({
@@ -385,16 +396,24 @@ async function watermarkSelected() {
 
   watermarking.value = true
   error.value = ''
-  const failures = []
+  let failures = []
   try {
-    for (const { item, index } of targets) {
-      try {
-        const file = await fetchRemoteImageFile(item.original || item.thumb)
-        startUpload(item, file)
-      } catch (err) {
-        failures.push(`#${index + 1} ${err.message || '处理失败'}`)
-      }
-    }
+    failures = (
+      await mapPool(targets, WATERMARK_FETCH_CONCURRENCY, async ({ item, index }) => {
+        try {
+          const file = await fetchRemoteImageFile(item.original || item.thumb)
+          // The slot may have been removed or replaced while its download was in flight.
+          const current = listAcc.value.find((x) => x.slotId === item.slotId)
+          if (!current || current.pending || isBusy(current)) return ''
+          if (!current.original && !current.thumb) return ''
+          startUpload(current, file)
+          return ''
+        } catch (err) {
+          if (!listAcc.value.some((x) => x.slotId === item.slotId)) return ''
+          return `#${index + 1} ${err.message || '处理失败'}`
+        }
+      })
+    ).filter(Boolean)
   } finally {
     watermarking.value = false
   }
@@ -459,7 +478,9 @@ function onEmptyPickFile(e) {
   startUpload(item, file)
 }
 
-function onBatchFiles(e) {
+const BATCH_PREVIEW_CONCURRENCY = 4
+
+async function onBatchFiles(e) {
   if (locked.value) return
   const files = Array.from(e.target.files || []).filter(
     (f) => f && typeof f.type === 'string' && f.type.startsWith('image/'),
@@ -470,14 +491,29 @@ function onBatchFiles(e) {
   picking.value = true
   error.value = ''
   try {
-    const added = files.map((file) => {
+    const added = files.map(() => {
       const dual = createEmptyDual()
-      dual.localPreview = URL.createObjectURL(file)
       dual.status = SLOT_STATUS.QUEUED
       dual.error = ''
       return dual
     })
     setList([...listAcc.value, ...added])
+    await nextTick()
+
+    // Build small previews first: full-size previews of a large batch exhaust
+    // memory and stall the tab. Slots show「排队中」until their preview is ready.
+    await mapPool(files, BATCH_PREVIEW_CONCURRENCY, async (file, i) => {
+      try {
+        const url = await createPreviewObjectUrl(file)
+        if (!listAcc.value.some((x) => x.slotId === added[i].slotId)) {
+          revokeObjectUrl(url)
+          return
+        }
+        patchSlot(added[i].slotId, { localPreview: url })
+      } catch {
+        /* preview is optional; pending thumb will show when compression finishes */
+      }
+    })
 
     for (let i = 0; i < files.length; i++) {
       enqueueFileUpload({
@@ -557,7 +593,7 @@ getSharedUploadQueue()
 
 .gallery-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(8, minmax(0, 1fr));
   gap: 0.75rem;
 }
 

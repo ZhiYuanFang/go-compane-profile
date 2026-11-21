@@ -9,11 +9,11 @@ admin-console-ui 域行为规格（自变更 delta / 旧基线迁移）。
 ## Requirements
 
 ### Requirement: Per-slot upload status badge
-Each gallery thumbnail (and cover dual field) SHALL show a Simplified Chinese status reflecting the slot's upload pipeline state.
+每个画廊缩略图（以及封面双图字段）SHALL 显示反映该槽位处理/上传管线状态的简体中文状态；压缩、添加水印、排队、待保存、上传、完成或失败时 SHALL 有对应文案。
 
 #### Scenario: Status vocabulary
-- **WHEN** a slot is compressing, queued, ready-with-pending, uploading, successfully uploaded, or failed
-- **THEN** the UI shows a corresponding label such as 处理中…、排队中、待保存、上传中、已上传、失败
+- **WHEN** a slot is compressing, applying a watermark, queued, ready-with-pending, uploading, successfully uploaded, or failed
+- **THEN** the UI shows a corresponding label such as 处理中…、添加水印中…、排队中、待保存、上传中、已上传、失败
 
 ### Requirement: Remote URL shows uploaded
 A slot that already has remote thumb/original URLs and no pending upload work SHALL display 已上传 (not 待上传).
@@ -100,12 +100,12 @@ While batch processing is running, batch select and destructive batch actions SH
 - **WHEN** batch processing is in progress
 - **THEN** starting another batch select is disabled until processing finishes
 
-### Requirement: Two-column thumbnail gallery grid
-The admin portfolio gallery editor SHALL display gallery slots in a two-column grid of compact thumbnails (not full-width DualImageField rows as the primary list surface). On narrow viewports the grid MAY collapse to one column.
+### Requirement: Eight-column thumbnail gallery grid
+管理端作品画廊编辑器 SHALL 以每行 8 个紧凑缩略图的多列网格展示图片；窄视口 MAY 折叠为更少列数。每个单元格 SHALL 显示序号和有图时的缩略图。
 
 #### Scenario: Dense grid layout
 - **WHEN** an admin opens a portfolio with multiple gallery images
-- **THEN** thumbnails appear in a two-column grid
+- **THEN** thumbnails appear in an eight-column grid on a desktop viewport
 - **AND** each cell shows an index and a small preview when an image is present
 
 ### Requirement: Click thumbnail to edit
@@ -128,12 +128,17 @@ Each grid cell SHALL support selection via checkbox. Reorder (上移/下移) and
 - **THEN** each cell has a checkbox for multi-select
 
 ### Requirement: Batch select keeps all local previews
-When an admin batch-selects multiple images, the client SHALL associate a local preview with every new slot in the same update cycle (or equivalent) such that no selected slot loses its preview due to concurrent status patches on other slots.
+运营批量选择多张图片时，客户端 SHALL 为每个新槽位生成有尺寸上限的本地预览（最长边不超过 480px），且无需等待压缩、加水印或上传完成。预览生成 SHALL 限制并发（例如 4 路），以控制内存峰值。
 
 #### Scenario: Ten files all show previews immediately
 - **WHEN** an admin batch-selects ten images
-- **THEN** all ten gallery cells show a local preview without waiting for compression or upload to finish
+- **THEN** all ten gallery cells show a small local preview without waiting for compression or upload to finish
 - **AND** subsequent status updates on one slot MUST NOT clear another slot’s local preview
+
+#### Scenario: Preview generation is bounded
+- **WHEN** an admin batch-selects many large images
+- **THEN** at most four previews are generated at once
+- **AND** full-size source images are not kept as preview object URLs
 
 ### Requirement: Async patches do not clobber sibling slots
 Per-slot pipeline patches (queued / compressing / uploading / done / error) SHALL update only the targeted `slotId` while preserving other slots’ fields including `localPreview`, `pending`, and remote URLs.

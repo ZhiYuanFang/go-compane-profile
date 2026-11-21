@@ -97,6 +97,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
 import { revokeObjectUrl, WATERMARK_TEXT } from '@/utils/imageProcess'
+import { createPreviewObjectUrl } from '@/utils/previewImage'
 import { fetchRemoteImageFile } from '@/utils/remoteImage'
 import { createEmptyDual, dualStatusLabel, dualStatusTone, SLOT_STATUS } from '@/utils/dualSlot'
 import {
@@ -128,10 +129,16 @@ const lightboxOpen = ref(false)
 const dragOver = ref(false)
 const dragDepth = ref(0)
 const fileInput = ref(null)
+let previewToken = 0
 
 const isBusyStatus = computed(() => {
   const s = props.modelValue?.status
-  return s === SLOT_STATUS.COMPRESSING || s === SLOT_STATUS.QUEUED || s === SLOT_STATUS.UPLOADING
+  return (
+    s === SLOT_STATUS.COMPRESSING ||
+    s === SLOT_STATUS.WATERMARKING ||
+    s === SLOT_STATUS.QUEUED ||
+    s === SLOT_STATUS.UPLOADING
+  )
 })
 
 /** Only already-uploaded, not-yet-reprocessed images need a watermark retrofit. */
@@ -234,6 +241,7 @@ onUnmounted(() => {
 })
 
 onBeforeUnmount(() => {
+  previewToken += 1
   const id = props.modelValue?.slotId
   if (id) cancelSlotUpload(id)
   revokeObjectUrl(localPreview.value)
@@ -308,15 +316,31 @@ function applyFile(file) {
 
   revokeObjectUrl(localPreview.value)
   revokeObjectUrl(localOriginalPreview.value)
-  const instant = URL.createObjectURL(file)
-  localPreview.value = instant
-  localOriginalPreview.value = instant
+  localPreview.value = ''
+  localOriginalPreview.value = ''
+
+  // Small preview only: a raw full-size photo can be tens of MiB in memory.
+  const token = ++previewToken
+  createPreviewObjectUrl(file)
+    .then((url) => {
+      if (token !== previewToken) {
+        revokeObjectUrl(url)
+        return
+      }
+      revokeObjectUrl(localPreview.value)
+      revokeObjectUrl(localOriginalPreview.value)
+      localPreview.value = url
+      localOriginalPreview.value = url
+    })
+    .catch(() => {
+      /* pending thumb will show when compression finishes */
+    })
 
   startSlotPipeline({
     slotId,
     file,
     category: props.category,
-    prevLocalPreview: props.modelValue?.localPreview || '',
+    skipLocalPreviewSetup: true,
     patch: (partial) => {
       patchSelf(partial)
       if (partial.error) error.value = partial.error

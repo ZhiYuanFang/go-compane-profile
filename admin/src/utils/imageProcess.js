@@ -1,20 +1,16 @@
 import imageCompression from 'browser-image-compression'
+import {
+  JPEG_QUALITY_STEPS,
+  WATERMARK_TEXT,
+  drawTiledWatermark,
+} from './watermarkCanvas'
+
+export { WATERMARK_TEXT }
 
 const ORIGINAL_MAX_MB = 3
 const THUMB_MAX_MB = 0.5
 const ORIGINAL_MAX = ORIGINAL_MAX_MB * 1024 * 1024
 const THUMB_MAX = THUMB_MAX_MB * 1024 * 1024
-
-export const WATERMARK_TEXT = 'MUHU'
-
-const WATERMARK_ANGLE = (-30 * Math.PI) / 180
-const WATERMARK_FONT_RATIO = 0.04
-const WATERMARK_MIN_FONT = 15
-const WATERMARK_STEP_X_RATIO = 0.4
-const WATERMARK_STEP_Y_RATIO = 0.3
-const WATERMARK_OPACITY = 0.18
-const WATERMARK_SHADOW = 'rgba(0, 0, 0, 0.18)'
-const JPEG_QUALITY_STEPS = [0.9, 0.8, 0.7, 0.6, 0.5]
 
 function extFromType(type) {
   if (!type) return 'jpg'
@@ -83,35 +79,6 @@ async function decodeForCanvas(blob) {
   return loadImageElement(blob)
 }
 
-function drawTiledWatermark(ctx, width, height) {
-  const shortEdge = Math.min(width, height)
-  const fontSize = Math.max(WATERMARK_MIN_FONT, Math.round(shortEdge * WATERMARK_FONT_RATIO))
-  const stepY = shortEdge * WATERMARK_STEP_Y_RATIO
-  const radius = Math.sqrt(width * width + height * height) / 2
-
-  ctx.save()
-  ctx.font = `bold ${fontSize}px sans-serif`
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.fillStyle = `rgba(255, 255, 255, ${WATERMARK_OPACITY})`
-  ctx.shadowColor = WATERMARK_SHADOW
-  ctx.shadowBlur = 2
-
-  const stepX = ctx.measureText(WATERMARK_TEXT).width + shortEdge * WATERMARK_STEP_X_RATIO
-
-  ctx.translate(width / 2, height / 2)
-  ctx.rotate(WATERMARK_ANGLE)
-
-  let row = 0
-  for (let y = -radius; y <= radius; y += stepY, row += 1) {
-    const offset = row % 2 === 0 ? 0 : stepX / 2
-    for (let x = -radius - stepX + offset; x <= radius + stepX; x += stepX) {
-      ctx.fillText(WATERMARK_TEXT, x, y)
-    }
-  }
-  ctx.restore()
-}
-
 function canvasToBlob(canvas, type, quality) {
   return new Promise((resolve, reject) => {
     canvas.toBlob(
@@ -147,13 +114,93 @@ async function encodeWatermarked(canvas, type, maxBytes) {
   }
 }
 
+let watermarkWorker = null
+let watermarkWorkerUnavailable = false
+let watermarkRequestSeq = 0
+/** @type {Map<number, { resolve: (blob: Blob | null) => void, reject: (err: Error) => void }>} */
+const watermarkPending = new Map()
+
+function disableWatermarkWorker(reason) {
+  if (!watermarkWorkerUnavailable) {
+    console.warn('[watermark] Worker 不可用，回退到主线程：', reason || 'unknown')
+  }
+  watermarkWorkerUnavailable = true
+  try {
+    watermarkWorker?.terminate()
+  } catch {
+    /* ignore */
+  }
+  watermarkWorker = null
+  for (const entry of watermarkPending.values()) entry.resolve(null)
+  watermarkPending.clear()
+}
+
+function getWatermarkWorker() {
+  if (watermarkWorkerUnavailable) return null
+  if (typeof Worker !== 'function') {
+    watermarkWorkerUnavailable = true
+    console.warn('[watermark] 当前浏览器不支持 Worker，回退到主线程')
+    return null
+  }
+  if (!watermarkWorker) {
+    try {
+      watermarkWorker = new Worker(new URL('./watermarkWorker.js', import.meta.url), {
+        type: 'module',
+      })
+      watermarkWorker.onmessage = (event) => {
+        const data = event.data || {}
+        const entry = watermarkPending.get(data.id)
+        if (!entry) return
+        watermarkPending.delete(data.id)
+        if (data.fallback) {
+          disableWatermarkWorker('worker canvas unsupported')
+          entry.resolve(null)
+        } else if (data.error) entry.reject(new Error(data.error))
+        else entry.resolve(data.blob)
+      }
+      watermarkWorker.onerror = (event) => {
+        // Worker unavailable (CSP, unsupported browser, bundling issue): use main thread.
+        disableWatermarkWorker(event?.message || 'worker error')
+      }
+    } catch {
+      watermarkWorkerUnavailable = true
+      watermarkWorker = null
+    }
+  }
+  return watermarkWorker
+}
+
+function watermarkInWorker(blob, maxBytes) {
+  const worker = getWatermarkWorker()
+  if (!worker) return Promise.resolve(null)
+  const id = ++watermarkRequestSeq
+  const type = blob.type === 'image/png' ? 'image/png' : 'image/jpeg'
+  return new Promise((resolve, reject) => {
+    watermarkPending.set(id, { resolve, reject })
+    try {
+      worker.postMessage({ id, blob, type, maxBytes })
+    } catch (err) {
+      watermarkPending.delete(id)
+      disableWatermarkWorker(err)
+      resolve(null)
+    }
+  })
+}
+
 /**
  * Draw the tiled MUHU watermark over a compressed blob and re-encode it.
+ * Prefers a worker so large batches do not block the UI; falls back to canvas
+ * on the main thread when worker canvas support is missing.
  * Returns a blob within maxBytes or throws.
  */
 export async function watermarkBlob(blob, maxBytes) {
   if (!blob) throw new Error('缺少待加水印的图片')
+  const fromWorker = await watermarkInWorker(blob, maxBytes)
+  if (fromWorker) return fromWorker
+  return watermarkBlobOnMainThread(blob, maxBytes)
+}
 
+async function watermarkBlobOnMainThread(blob, maxBytes) {
   const source = await decodeForCanvas(blob)
   const width = source.width || source.naturalWidth || 0
   const height = source.height || source.naturalHeight || 0
@@ -186,17 +233,21 @@ export async function watermarkBlob(blob, maxBytes) {
  * Produce original (≤3MiB) + thumb (≤0.5MiB) blobs from a user-selected File.
  * When `watermark` is true, content images get the tiled MUHU mark before READY.
  */
-export async function processDualImage(file, { watermark = false } = {}) {
+export async function processDualImage(file, { watermark = false, onWatermarkStart } = {}) {
   if (!file || !file.type?.startsWith('image/')) {
     throw new Error('请选择图片文件')
   }
 
+  // Process one large blob at a time: parallel full-size decodes of several
+  // images exhaust memory and stall the whole desktop tab.
   let originalBlob =
     file.size <= ORIGINAL_MAX
       ? file
       : await compressUnder(file, ORIGINAL_MAX_MB, 4096)
 
-  let thumbBlob = await compressUnder(file, THUMB_MAX_MB, 1280)
+  // Derive the thumb from the already-compressed original so the source image
+  // is not decoded again at full resolution.
+  let thumbBlob = await compressUnder(originalBlob, THUMB_MAX_MB, 1280)
 
   if (originalBlob.size > ORIGINAL_MAX) {
     throw new Error('原图超过 3MB，请换一张较小的图片')
@@ -206,6 +257,7 @@ export async function processDualImage(file, { watermark = false } = {}) {
   }
 
   if (watermark) {
+    onWatermarkStart?.()
     originalBlob = await watermarkBlob(originalBlob, ORIGINAL_MAX)
     thumbBlob = await watermarkBlob(thumbBlob, THUMB_MAX)
   }
