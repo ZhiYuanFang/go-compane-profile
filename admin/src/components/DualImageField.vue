@@ -134,6 +134,7 @@ let previewToken = 0
 const isBusyStatus = computed(() => {
   const s = props.modelValue?.status
   return (
+    s === SLOT_STATUS.DOWNLOADING ||
     s === SLOT_STATUS.COMPRESSING ||
     s === SLOT_STATUS.WATERMARKING ||
     s === SLOT_STATUS.QUEUED ||
@@ -353,12 +354,25 @@ async function addWatermark() {
   if (!canWatermark.value || watermarking.value) return
   watermarking.value = true
   error.value = ''
+  const sourceUrl = props.modelValue.original || props.modelValue.thumb
+  if (!sourceUrl) {
+    watermarking.value = false
+    return
+  }
+
+  patchSelf({ status: SLOT_STATUS.DOWNLOADING, error: '' })
   try {
-    const file = await fetchRemoteImageFile(
-      props.modelValue.original || props.modelValue.thumb,
-    )
+    const file = await fetchRemoteImageFile(sourceUrl)
+    if ((props.modelValue?.original || props.modelValue?.thumb) !== sourceUrl) return
+    if (props.disabled) {
+      patchSelf({ status: SLOT_STATUS.DONE, error: '' })
+      return
+    }
     applyFile(file)
   } catch (err) {
+    if ((props.modelValue?.original || props.modelValue?.thumb) === sourceUrl) {
+      patchSelf({ status: SLOT_STATUS.DONE, error: '' })
+    }
     error.value = err.message || '加水印失败'
   } finally {
     watermarking.value = false

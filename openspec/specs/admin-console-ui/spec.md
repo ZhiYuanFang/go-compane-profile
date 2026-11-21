@@ -9,11 +9,11 @@ admin-console-ui 域行为规格（自变更 delta / 旧基线迁移）。
 ## Requirements
 
 ### Requirement: Per-slot upload status badge
-每个画廊缩略图（以及封面双图字段）SHALL 显示反映该槽位处理/上传管线状态的简体中文状态；压缩、添加水印、排队、待保存、上传、完成或失败时 SHALL 有对应文案。
+每个画廊缩略图（以及封面双图字段）SHALL 显示反映该槽位处理/上传管线状态的简体中文状态；下载线上原图、压缩、添加水印、排队、待保存、上传、完成或失败时 SHALL 有对应文案。
 
 #### Scenario: Status vocabulary
-- **WHEN** a slot is compressing, applying a watermark, queued, ready-with-pending, uploading, successfully uploaded, or failed
-- **THEN** the UI shows a corresponding label such as 处理中…、添加水印中…、排队中、待保存、上传中、已上传、失败
+- **WHEN** a slot is downloading a remote original, compressing, applying a watermark, queued, ready-with-pending, uploading, successfully uploaded, or failed
+- **THEN** the UI shows a corresponding label such as 下载原图…、处理中…、添加水印中…、排队中、待保存、上传中、已上传、失败
 
 ### Requirement: Remote URL shows uploaded
 A slot that already has remote thumb/original URLs and no pending upload work SHALL display 已上传 (not 待上传).
@@ -378,3 +378,17 @@ The pair editor UI SHALL label both render and real slots as optional (or otherw
 #### Scenario: logo 预览不加水印
 - **WHEN** 公司 Logo 槽位完成压缩
 - **THEN** 其预览与放大视图不显示水印
+
+### Requirement: 补水印时展示远程下载状态
+为已上传图片补加水印时，客户端 SHALL 在拉取线上原图期间将对应槽位置为下载状态并显示「下载原图…」。下载完成后 SHALL 自动进入后续排队/压缩/添加水印状态；下载失败时槽位 MUST 恢复为「已上传」，并向运营展示可定位到具体序号的错误。
+
+#### Scenario: 已上线图片补水印显示下载状态
+- **WHEN** an admin selects already-uploaded images and clicks 加水印
+- **THEN** every selected slot immediately shows 下载原图…
+- **AND** as each download finishes, its slot moves on to 排队中/处理中…/添加水印中…
+
+#### Scenario: 下载失败恢复已上传
+- **WHEN** fetching a selected slot's remote original fails
+- **THEN** that slot returns to 已上传 instead of entering a failed state
+- **AND** the error message names the slot by its index
+- **AND** the other selected slots continue processing

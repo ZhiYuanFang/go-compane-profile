@@ -260,6 +260,7 @@ function cellLightbox(item) {
 
 function isBusy(item) {
   return (
+    item?.status === SLOT_STATUS.DOWNLOADING ||
     item?.status === SLOT_STATUS.COMPRESSING ||
     item?.status === SLOT_STATUS.WATERMARKING ||
     item?.status === SLOT_STATUS.QUEUED ||
@@ -396,20 +397,33 @@ async function watermarkSelected() {
 
   watermarking.value = true
   error.value = ''
+  // The remote download can be slow; show it on every selected slot immediately.
+  for (const { item } of targets) {
+    const current = listAcc.value.find((x) => x.slotId === item.slotId)
+    if (current) patchSlot(current.slotId, { status: SLOT_STATUS.DOWNLOADING, error: '' })
+  }
+
   let failures = []
   try {
     failures = (
       await mapPool(targets, WATERMARK_FETCH_CONCURRENCY, async ({ item, index }) => {
+        const before = listAcc.value.find((x) => x.slotId === item.slotId)
+        if (!before || before.status !== SLOT_STATUS.DOWNLOADING) return ''
         try {
-          const file = await fetchRemoteImageFile(item.original || item.thumb)
+          const file = await fetchRemoteImageFile(before.original || before.thumb)
           // The slot may have been removed or replaced while its download was in flight.
           const current = listAcc.value.find((x) => x.slotId === item.slotId)
-          if (!current || current.pending || isBusy(current)) return ''
+          if (!current || current.status !== SLOT_STATUS.DOWNLOADING || current.pending) return ''
           if (!current.original && !current.thumb) return ''
           startUpload(current, file)
           return ''
         } catch (err) {
-          if (!listAcc.value.some((x) => x.slotId === item.slotId)) return ''
+          const current = listAcc.value.find((x) => x.slotId === item.slotId)
+          if (!current) return ''
+          if (current.status === SLOT_STATUS.DOWNLOADING) {
+            // The remote image is still valid; return the slot to 已上传.
+            patchSlot(current.slotId, { status: SLOT_STATUS.DONE, error: '' })
+          }
           return `#${index + 1} ${err.message || '处理失败'}`
         }
       })

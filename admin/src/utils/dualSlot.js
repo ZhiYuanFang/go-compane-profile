@@ -1,5 +1,6 @@
 export const SLOT_STATUS = {
   IDLE: 'idle',
+  DOWNLOADING: 'downloading',
   COMPRESSING: 'compressing',
   WATERMARKING: 'watermarking',
   QUEUED: 'queued',
@@ -43,6 +44,7 @@ export function isEmptyDual(d) {
   if (!d) return true
   if (d.pending || d.localPreview) return false
   if (
+    d.status === SLOT_STATUS.DOWNLOADING ||
     d.status === SLOT_STATUS.COMPRESSING ||
     d.status === SLOT_STATUS.WATERMARKING ||
     d.status === SLOT_STATUS.QUEUED ||
@@ -57,6 +59,8 @@ export function isEmptyDual(d) {
 export function dualStatusLabel(d) {
   if (!d) return ''
   switch (d.status) {
+    case SLOT_STATUS.DOWNLOADING:
+      return '下载原图…'
     case SLOT_STATUS.COMPRESSING:
       return '处理中…'
     case SLOT_STATUS.WATERMARKING:
@@ -88,6 +92,7 @@ export function dualStatusTone(d) {
     case SLOT_STATUS.QUEUED:
     case SLOT_STATUS.READY:
       return 'wait'
+    case SLOT_STATUS.DOWNLOADING:
     case SLOT_STATUS.COMPRESSING:
     case SLOT_STATUS.WATERMARKING:
     case SLOT_STATUS.UPLOADING:
@@ -107,6 +112,7 @@ export function dualIsBlockingSave(d) {
   if (!d || isEmptyDual(d)) return false
   if (d.status === SLOT_STATUS.ERROR) return true
   if (
+    d.status === SLOT_STATUS.DOWNLOADING ||
     d.status === SLOT_STATUS.COMPRESSING ||
     d.status === SLOT_STATUS.WATERMARKING ||
     d.status === SLOT_STATUS.QUEUED ||
