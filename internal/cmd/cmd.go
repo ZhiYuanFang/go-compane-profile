@@ -44,8 +44,6 @@ var (
 				group.Middleware(middleware.AdminAuth)
 				// NDJSON stream must not use MiddlewareHandlerResponse wrapping.
 				group.POST("/upload/stream", admin.HandleUploadStream)
-				// Binary media proxy: no response wrapping.
-				group.GET("/media/proxy", admin.HandleMediaProxy)
 				group.Group("/", func(api *ghttp.RouterGroup) {
 					api.Middleware(ghttp.MiddlewareHandlerResponse)
 					api.Bind(admin.New())

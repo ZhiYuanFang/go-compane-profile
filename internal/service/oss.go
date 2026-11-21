@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/http"
 	"path"
 	"strings"
 	"sync"
@@ -20,9 +19,8 @@ import (
 )
 
 const (
-	MaxOriginalBytes = 3 * 1024 * 1024  // 3MiB
-	MaxThumbBytes    = 512 * 1024       // 0.5MiB
-	MaxProxyBytes    = 20 * 1024 * 1024 // 20MiB, admin media proxy read cap
+	MaxOriginalBytes = 3 * 1024 * 1024 // 3MiB
+	MaxThumbBytes    = 512 * 1024      // 0.5MiB
 )
 
 // DualUploadResult is a CDN URL pair for original + thumb.
@@ -230,57 +228,6 @@ func DeleteObject(objectKeyOrURL string) error {
 		return gerror.WrapCode(gcode.CodeInternalError, err, "删除对象失败")
 	}
 	return nil
-}
-
-// ReadObjectBytes downloads an existing image from the CDN for the admin-only
-// media proxy. Using the public CDN keeps this working both inside and outside
-// the OSS VPC (the configured OSS endpoint is usually the internal one).
-func ReadObjectBytes(ctx context.Context, objectKeyOrURL string) ([]byte, string, error) {
-	key, err := resolveObjectKey(objectKeyOrURL)
-	if err != nil {
-		return nil, "", err
-	}
-	if i := strings.IndexByte(key, '?'); i >= 0 {
-		key = key[:i]
-	}
-	key = strings.TrimPrefix(strings.TrimSpace(key), "/")
-	if err := assertMuHouKey(key); err != nil {
-		return nil, "", err
-	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
-	target := cdnURL(config.LoadAppConfig().CDNBase, key)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
-	if err != nil {
-		return nil, "", gerror.WrapCode(gcode.CodeInvalidParameter, err, "图片地址无效")
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, "", gerror.WrapCode(gcode.CodeInternalError, err, "下载图片失败")
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, "", gerror.NewCodef(gcode.CodeNotFound, "下载图片失败（%d）", resp.StatusCode)
-	}
-
-	data, err := io.ReadAll(io.LimitReader(resp.Body, MaxProxyBytes+1))
-	if err != nil {
-		return nil, "", gerror.WrapCode(gcode.CodeInternalError, err, "下载图片失败")
-	}
-	if len(data) > MaxProxyBytes {
-		return nil, "", gerror.NewCode(gcode.CodeInvalidParameter, "图片超过 20MB，无法处理")
-	}
-
-	contentType := resp.Header.Get("Content-Type")
-	if !strings.HasPrefix(contentType, "image/") {
-		contentType = http.DetectContentType(data)
-	}
-	if !strings.HasPrefix(contentType, "image/") {
-		return nil, "", gerror.NewCode(gcode.CodeInvalidParameter, "对象不是图片")
-	}
-	return data, contentType, nil
 }
 
 func assertMuHouKey(key string) error {
