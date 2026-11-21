@@ -24,3 +24,11 @@ services:
       - env/.env.prod
     environment:
       SERVER_ADDRESS: ":9100"
+    networks:
+      - appnet
+
+networks:
+  appnet:
+    driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: 1450
