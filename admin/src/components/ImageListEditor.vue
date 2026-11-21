@@ -3,30 +3,39 @@
     <div class="image-list-head">
       <h2>{{ title }}</h2>
       <div class="image-list-head-actions">
-        <label class="btn btn-sm" :class="{ disabled: picking }">
+        <label class="btn btn-sm" :class="{ disabled: locked }">
           {{ picking ? '添加中…' : '批量选择' }}
           <input
             type="file"
             accept="image/*"
             multiple
             hidden
-            :disabled="picking"
+            :disabled="locked"
             @change="onBatchFiles"
           />
         </label>
-        <button type="button" class="btn btn-sm btn-ghost" :disabled="picking" @click="add">
+        <button type="button" class="btn btn-sm btn-ghost" :disabled="locked" @click="add">
           添加一张
         </button>
-        <button type="button" class="btn btn-sm btn-ghost" :disabled="picking || !listAcc.length" @click="selectAll">
+        <button
+          type="button"
+          class="btn btn-sm btn-ghost"
+          :disabled="locked || watermarking || !selectedWatermarkTargets.length"
+          title="给勾选的已上线图片补加水印，保存时上传替换（重复添加会叠加）"
+          @click="watermarkSelected"
+        >
+          {{ watermarking ? '处理中…' : '加水印' }}
+        </button>
+        <button type="button" class="btn btn-sm btn-ghost" :disabled="locked || !listAcc.length" @click="selectAll">
           全选
         </button>
-        <button type="button" class="btn btn-sm btn-ghost" :disabled="picking || !selected.size" @click="clearSelection">
+        <button type="button" class="btn btn-sm btn-ghost" :disabled="locked || !selected.size" @click="clearSelection">
           取消全选
         </button>
         <button
           type="button"
           class="btn btn-sm btn-danger"
-          :disabled="picking || !selected.size"
+          :disabled="locked || !selected.size"
           @click="removeSelected"
         >
           删除所选{{ selected.size ? ` (${selected.size})` : '' }}
@@ -35,7 +44,7 @@
     </div>
 
     <p v-if="error" class="image-list-error">{{ error }}</p>
-    <div v-if="!listAcc.length" class="muted empty-list">暂无图片，可批量选择（选后本地处理，保存时上传）</div>
+    <div v-if="!listAcc.length" class="muted empty-list">暂无图片，可批量选择（选后本地处理并加水印，保存时上传）</div>
 
     <div v-else class="gallery-grid">
       <div
@@ -48,7 +57,7 @@
           <input
             type="checkbox"
             :checked="selected.has(item.slotId || i)"
-            :disabled="picking"
+            :disabled="locked"
             @change="toggleSelect(item.slotId || i, $event)"
           />
         </label>
@@ -59,7 +68,7 @@
             type="button"
             class="gallery-thumb"
             :class="{ empty: !cellPreview(item) }"
-            :disabled="picking"
+            :disabled="locked"
             @click="onThumbClick(i, item)"
           >
             <img v-if="cellPreview(item)" :src="cellPreview(item)" :alt="`#${i + 1}`" />
@@ -73,15 +82,15 @@
                 type="file"
                 accept="image/*"
                 hidden
-                :disabled="picking"
+                :disabled="locked"
                 @change="onReplaceFile(item, $event)"
               />
             </label>
-            <button type="button" class="op-btn" :disabled="picking || i === 0" @click="move(i, -1)">上</button>
+            <button type="button" class="op-btn" :disabled="locked || i === 0" @click="move(i, -1)">上</button>
             <button
               type="button"
               class="op-btn"
-              :disabled="picking || i === listAcc.length - 1"
+              :disabled="locked || i === listAcc.length - 1"
               @click="move(i, 1)"
             >
               下
@@ -90,12 +99,12 @@
               v-if="item.status === 'error'"
               type="button"
               class="op-btn"
-              :disabled="picking"
+              :disabled="locked"
               @click="retry(item)"
             >
               重试
             </button>
-            <button type="button" class="op-btn danger" :disabled="picking" @click="removeOne(item)">删</button>
+            <button type="button" class="op-btn danger" :disabled="locked" @click="removeOne(item)">删</button>
           </div>
           <div v-else class="gallery-ops always" @click.stop>
             <label class="op-btn">
@@ -104,11 +113,11 @@
                 type="file"
                 accept="image/*"
                 hidden
-                :disabled="picking"
+                :disabled="locked"
                 @change="onReplaceFile(item, $event)"
               />
             </label>
-            <button type="button" class="op-btn danger" :disabled="picking" @click="removeOne(item)">删</button>
+            <button type="button" class="op-btn danger" :disabled="locked" @click="removeOne(item)">删</button>
           </div>
         </div>
 
@@ -127,7 +136,7 @@
       type="file"
       accept="image/*"
       hidden
-      :disabled="picking"
+      :disabled="locked"
       @change="onEmptyPickFile"
     />
 
@@ -147,8 +156,9 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
 import { revokeObjectUrl } from '@/utils/imageProcess'
+import { fetchRemoteImageFile } from '@/utils/remoteImage'
 import {
   createEmptyDual,
   dualStatusLabel,
@@ -167,11 +177,14 @@ const props = defineProps({
   modelValue: { type: Array, default: () => [] },
   title: { type: String, required: true },
   category: { type: String, default: 'portfolio' },
+  disabled: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['update:modelValue'])
 
 const picking = ref(false)
+const watermarking = ref(false)
+const locked = computed(() => props.disabled || picking.value)
 const error = ref('')
 const selected = ref(new Set())
 const blobUrlCache = new Map()
@@ -207,10 +220,23 @@ function revokeLocalPreview(url) {
   if (url) revokeObjectUrl(url)
 }
 
+function revokePendingCache(pending) {
+  if (!pending) return
+  for (const blob of [pending.thumb, pending.original]) {
+    if (!blob) continue
+    const url = blobUrlCache.get(blob)
+    if (url) {
+      revokeObjectUrl(url)
+      blobUrlCache.delete(blob)
+    }
+  }
+}
+
 function cellPreview(item) {
   if (!item) return ''
-  if (item.localPreview) return item.localPreview
+  // Pending blobs are watermarked: prefer them over the raw local preview.
   if (item.pending?.thumb) return getBlobUrl(item.pending.thumb)
+  if (item.localPreview) return item.localPreview
   if (item.thumb) return item.thumb
   if (item.original) return item.original
   return ''
@@ -231,6 +257,17 @@ function isBusy(item) {
     item?.status === SLOT_STATUS.UPLOADING
   )
 }
+
+/** Selected images that are still untouched remote uploads. */
+const selectedWatermarkTargets = computed(() =>
+  listAcc.value.filter(
+    (item) =>
+      selected.value.has(item.slotId) &&
+      !item.pending &&
+      !isBusy(item) &&
+      !!(item.original || item.thumb),
+  ),
+)
 
 function clearSelection() {
   selected.value = new Set()
@@ -268,11 +305,19 @@ function patchSlot(slotId, partial) {
   ) {
     revokeLocalPreview(prev.localPreview)
   }
+  if (
+    Object.prototype.hasOwnProperty.call(partial, 'pending') &&
+    prev.pending &&
+    partial.pending !== prev.pending
+  ) {
+    revokePendingCache(prev.pending)
+  }
   list[i] = { ...prev, ...partial }
   setList(list)
 }
 
 function add() {
+  if (locked.value) return
   setList([...listAcc.value, createEmptyDual()])
 }
 
@@ -280,6 +325,7 @@ function removeBySlotId(slotId) {
   const item = listAcc.value.find((x) => x.slotId === slotId)
   cancelSlotUpload(slotId)
   if (item?.localPreview) revokeLocalPreview(item.localPreview)
+  revokePendingCache(item?.pending)
   setList(listAcc.value.filter((x) => x.slotId !== slotId))
   const next = new Set(selected.value)
   next.delete(slotId)
@@ -287,12 +333,13 @@ function removeBySlotId(slotId) {
 }
 
 function removeOne(item) {
-  if (!item?.slotId) return
+  if (locked.value || !item?.slotId) return
   if (!confirm('确定移除该图片？')) return
   removeBySlotId(item.slotId)
 }
 
 function removeSelected() {
+  if (locked.value) return
   const ids = [...selected.value]
   if (!ids.length) return
   if (!confirm(`确定删除所选 ${ids.length} 张？`)) return
@@ -300,12 +347,14 @@ function removeSelected() {
     const item = listAcc.value.find((x) => x.slotId === id)
     cancelSlotUpload(id)
     if (item?.localPreview) revokeLocalPreview(item.localPreview)
+    revokePendingCache(item?.pending)
   }
   setList(listAcc.value.filter((x) => !ids.includes(x.slotId)))
   clearSelection()
 }
 
 function move(i, delta) {
+  if (locked.value) return
   const j = i + delta
   if (j < 0 || j >= listAcc.value.length) return
   const next = listAcc.value.slice()
@@ -316,7 +365,7 @@ function move(i, delta) {
 }
 
 function startUpload(item, file) {
-  if (!item?.slotId || !file) return
+  if (locked.value || !item?.slotId || !file) return
   enqueueFileUpload({
     slotId: item.slotId,
     file,
@@ -326,21 +375,48 @@ function startUpload(item, file) {
   })
 }
 
+async function watermarkSelected() {
+  if (locked.value || watermarking.value) return
+  const targets = selectedWatermarkTargets.value.map((item) => ({
+    item,
+    index: listAcc.value.indexOf(item),
+  }))
+  if (!targets.length) return
+
+  watermarking.value = true
+  error.value = ''
+  const failures = []
+  try {
+    for (const { item, index } of targets) {
+      try {
+        const file = await fetchRemoteImageFile(item.original || item.thumb)
+        startUpload(item, file)
+      } catch (err) {
+        failures.push(`#${index + 1} ${err.message || '处理失败'}`)
+      }
+    }
+  } finally {
+    watermarking.value = false
+  }
+  if (failures.length) error.value = failures.join('；')
+}
+
 function retry(item) {
-  if (!item?.slotId) return
+  if (locked.value || !item?.slotId) return
   if (item.pending?.original && item.pending?.thumb) {
     enqueuePendingUpload({
       slotId: item.slotId,
       pending: item.pending,
       category: props.category,
       patch: (partial) => patchSlot(item.slotId, partial),
-    })
+    }).catch(() => {})
     return
   }
   error.value = '请重新选择图片'
 }
 
 function onReplaceFile(item, e) {
+  if (locked.value) return
   const file = e.target.files?.[0]
   e.target.value = ''
   if (!file || !item) return
@@ -372,6 +448,7 @@ onMounted(() => window.addEventListener('keydown', onKeydown))
 onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 function onEmptyPickFile(e) {
+  if (locked.value) return
   const file = e.target.files?.[0]
   e.target.value = ''
   const slotId = emptyPickSlotId.value
@@ -383,6 +460,7 @@ function onEmptyPickFile(e) {
 }
 
 function onBatchFiles(e) {
+  if (locked.value) return
   const files = Array.from(e.target.files || []).filter(
     (f) => f && typeof f.type === 'string' && f.type.startsWith('image/'),
   )

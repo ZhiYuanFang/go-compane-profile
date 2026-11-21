@@ -54,8 +54,8 @@
       </div>
 
       <div class="grid-2">
-        <DualImageField v-model="form.logo" label="Logo（方）" category="logo" />
-        <DualImageField v-model="form.logoHor" label="Logo（横）" category="logo" />
+        <DualImageField v-model="form.logo" label="Logo（方）" category="logo" :disabled="saving" />
+        <DualImageField v-model="form.logoHor" label="Logo（横）" category="logo" :disabled="saving" />
       </div>
 
       <div class="form-actions">

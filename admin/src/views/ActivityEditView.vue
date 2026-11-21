@@ -17,7 +17,12 @@
         <input id="title" v-model.trim="form.title" required maxlength="255" placeholder="请输入新闻标题" />
       </div>
 
-      <DualImageField v-model="form.image" label="封面图（必填）" category="activity" />
+      <DualImageField
+        v-model="form.image"
+        label="封面图（必填）"
+        category="activity"
+        :disabled="saving"
+      />
 
       <div class="field">
         <label>正文</label>

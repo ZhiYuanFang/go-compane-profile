@@ -156,7 +156,7 @@ export function enqueuePendingUpload({
 export function enqueueFileUpload({
   slotId,
   file,
-  category: _category,
+  category = 'general',
   patch,
   prevLocalPreview = '',
   skipLocalPreviewSetup = false,
@@ -190,7 +190,7 @@ export function enqueueFileUpload({
     try {
       if (compressQueue.isCancelled(slotId) || signal.aborted) return
       patch({ status: SLOT_STATUS.COMPRESSING, error: '' })
-      const pair = await processDualImage(file)
+      const pair = await processDualImage(file, { watermark: category !== 'logo' })
       if (compressQueue.isCancelled(slotId) || signal.aborted) return
 
       patch({
@@ -229,13 +229,17 @@ export async function flushPendingDualUploads(entries) {
   if (!list.length) return
 
   await Promise.all(
-    list.map(({ dual, category, patch }) =>
-      enqueuePendingUpload({
+    list.map(({ dual, category, patch }) => {
+      const prevLocalPreview = dual.localPreview
+      return enqueuePendingUpload({
         slotId: dual.slotId,
         pending: dual.pending,
         category: category || 'general',
         patch,
-      }),
-    ),
+      }).then((donePatch) => {
+        // Parent-owned patches bypass component-level preview revocation on DONE.
+        if (donePatch) revokeObjectUrl(prevLocalPreview)
+      })
+    }),
   )
 }

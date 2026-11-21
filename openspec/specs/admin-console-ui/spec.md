@@ -12,8 +12,8 @@ admin-console-ui 域行为规格（自变更 delta / 旧基线迁移）。
 Each gallery thumbnail (and cover dual field) SHALL show a Simplified Chinese status reflecting the slot's upload pipeline state.
 
 #### Scenario: Status vocabulary
-- **WHEN** a slot is compressing, queued, uploading, successfully uploaded, or failed
-- **THEN** the UI shows a corresponding label such as 处理中…、排队中、上传中、已上传、失败
+- **WHEN** a slot is compressing, queued, ready-with-pending, uploading, successfully uploaded, or failed
+- **THEN** the UI shows a corresponding label such as 处理中…、排队中、待保存、上传中、已上传、失败
 
 ### Requirement: Remote URL shows uploaded
 A slot that already has remote thumb/original URLs and no pending upload work SHALL display 已上传 (not 待上传).
@@ -358,3 +358,18 @@ The pair editor UI SHALL label both render and real slots as optional (or otherw
 #### Scenario: Labels show optional
 - **WHEN** an operator views a gallery pair row
 - **THEN** neither slot is presented as the sole required field of the pair
+
+### Requirement: 待保存预览展示水印图
+当内容槽位完成压缩与水印并进入待保存状态时，管理端槽位预览 SHALL 显示带水印的 pending thumb（或等价的本地水印预览）；放大或灯箱视图 SHALL 显示带水印的 pending original。预览 MUST NOT 继续显示未加水印的选图预览。
+
+#### Scenario: 网格预览显示水印
+- **WHEN** 作品图或活动封面槽位进入待保存状态
+- **THEN** 该槽位缩略图显示带 `MUHU` 水印的图片
+
+#### Scenario: 放大查看水印原图
+- **WHEN** 运营在待保存状态点击内容槽位放大查看
+- **THEN** 放大视图展示带水印的 original
+
+#### Scenario: logo 预览不加水印
+- **WHEN** 公司 Logo 槽位完成压缩
+- **THEN** 其预览与放大视图不显示水印

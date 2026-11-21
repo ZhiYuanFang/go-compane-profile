@@ -63,22 +63,6 @@ Deferred upload SHALL apply consistently to every admin surface that uses dual-i
 - **WHEN** the operator selects an activity cover image and later saves the activity
 - **THEN** OSS upload occurs during save with progress, not immediately on select
 
-### Requirement: Eager upload after image add
-When an admin adds or replaces a gallery or cover image (including batch select), the client SHALL compress the file and then upload it via the existing admin upload API without waiting for form save. Browser-direct OSS upload SHALL NOT be required.
-
-#### Scenario: Single add triggers background upload
-- **WHEN** an admin selects an image for a gallery slot or cover
-- **THEN** the client compresses it and starts an upload to `POST /admin/api/upload` in the background
-- **AND** on success the slot stores CDN URLs and clears local pending blobs
-
-### Requirement: Batch queue with limited concurrency
-When multiple images are enqueued, the client SHALL process uploads with a maximum concurrency of 3 so that earlier items may be uploading while later items remain queued or still compressing.
-
-#### Scenario: Front uploading back waiting
-- **WHEN** an admin batch-selects more than three images
-- **THEN** at most three upload jobs run at once
-- **AND** remaining jobs wait in queue until a slot frees
-
 ### Requirement: Delete cancels queued or in-flight work
 Removing a gallery slot (single remove or batch delete) SHALL cancel that slot's queued job or abort an in-flight compress/upload when possible. A late successful upload response for a removed `slotId` MUST NOT re-add the image to the list.
 
@@ -91,16 +75,16 @@ Removing a gallery slot (single remove or batch delete) SHALL cancel that slot's
 - **THEN** the client aborts or ignores the result for that slotId
 - **AND** the slot does not reappear after a late response
 
-### Requirement: Save requires uploads settled
-Portfolio save SHALL NOT succeed while any gallery/cover slot is still compressing, queued, uploading, or in a failed upload state. Slots that already have remote URLs SHALL be submitted as URLs without re-uploading.
+### Requirement: Save refuses unsettled slots
+Save SHALL be blocked with a clear reason while any non-empty slot is still compressing, queued for compression, or uploading, and SHALL remain blocked while any slot is in a failed state. Slots that already have remote URLs SHALL be submitted as URLs without re-uploading.
 
 #### Scenario: Block save on failure
 - **WHEN** any slot shows a failed upload status
 - **THEN** save does not complete successfully until the admin retries successfully or removes the slot
 
-#### Scenario: Block or wait while in flight
-- **WHEN** uploads are still in progress
-- **THEN** save is blocked or deferred with clear feedback until uploads finish or fail
+#### Scenario: Block while processing
+- **WHEN** any slot is still compressing, queued, or uploading
+- **THEN** save is blocked with clear feedback until that work finishes or fails
 
 ### Requirement: Original max 3MiB
 Client compression and server upload validation SHALL enforce an original image maximum of 3 MiB (`3 * 1024 * 1024` bytes).
@@ -148,12 +132,12 @@ Original and thumb max sizes SHALL be derived from the same unit convention as `
 - **WHEN** thumb max is defined for processing
 - **THEN** it equals `0.5 * 1024 * 1024` (or an equivalent expression of 0.5 MiB)
 
-### Requirement: Parallel pending uploads with concurrency limit
-When resolving multiple pending dual images for portfolio save, the admin client SHALL upload those pending items concurrently with a maximum concurrency of 3 (not strictly one-after-another). Items that already have remote URLs and no pending blobs SHALL not be uploaded again.
+### Requirement: Pending uploads share the serial upload queue
+When resolving multiple pending dual images for a save, the admin client SHALL enqueue them on the shared upload queue with a maximum concurrency of 1. Items that already have remote URLs and no pending blobs SHALL not be uploaded again.
 
-#### Scenario: Multiple pending uploads overlap
-- **WHEN** an admin saves a portfolio with more than three pending gallery images
-- **THEN** at most three upload requests are in flight at once
+#### Scenario: Multiple pending uploads are serialized
+- **WHEN** an admin saves a portfolio with multiple pending gallery images
+- **THEN** at most one upload request is in flight at a time
 - **AND** all pending images are uploaded before the portfolio/gallery write continues
 
 #### Scenario: Preserve gallery order
@@ -161,11 +145,12 @@ When resolving multiple pending dual images for portfolio save, the admin client
 - **THEN** the resolved URL list retains the same order as the input gallery list
 
 ### Requirement: Upload progress during save
-While save-time uploads are running, the admin UI SHALL show progress indicating completed uploads over total uploads needed (e.g.「上传中 3/12」).
+While save-time uploads are running, the admin UI SHALL show per-slot upload progress from the streaming upload events, and the form save control SHALL indicate that upload and save are in progress.
 
-#### Scenario: Progress updates
+#### Scenario: Per-slot progress updates
 - **WHEN** pending dual uploads are in progress during save
-- **THEN** the UI shows a fraction of finished uploads versus total pending uploads
+- **THEN** each uploading slot shows its own stream percent (e.g.「上传中 42%」)
+- **AND** the save control shows an uploading-and-saving state
 
 ### Requirement: Fail save on any upload error
 If any pending dual upload fails, the save operation SHALL fail and MUST NOT treat the gallery as successfully updated for that submit.
@@ -197,7 +182,7 @@ Progress percent SHALL be derived primarily from bytes consumed while uploading 
 - **AND** thumb upload continues to advance overall percent until completion
 
 ### Requirement: Admin UI shows stream progress
-The admin eager-upload pipeline SHALL use the streaming endpoint and display the stream’s overall percent on the slot status (e.g.「上传中 N%」) until success or failure. Cancel/abort SHALL abort the in-flight stream request.
+The admin upload pipeline SHALL use the streaming endpoint and display the stream’s overall percent on the slot status (e.g.「上传中 N%」) until success or failure. Cancel/abort SHALL abort the in-flight stream request.
 
 #### Scenario: Badge tracks OSS-weighted percent
 - **WHEN** the stream reports progress pct=42
@@ -208,24 +193,24 @@ The admin eager-upload pipeline SHALL use the streaming endpoint and display the
 - **THEN** the slot stores CDN URLs, status becomes uploaded, and progress is cleared
 
 ### Requirement: Compress outside upload queue
-Gallery (and cover when using the shared pipeline) image compression SHALL NOT occupy a slot in the shared upload concurrency pool. Compression SHALL run in a separate limited pool; only the HTTP upload of already-compressed pending blobs SHALL use the upload queue (maximum concurrency 3).
+Gallery (and cover when using the shared pipeline) image compression SHALL NOT occupy a slot in the shared upload concurrency pool. Compression SHALL run in a separate limited pool; only the HTTP upload of already-compressed pending blobs SHALL use the upload queue (maximum concurrency 1).
 
-#### Scenario: Later images compress while earlier upload
-- **WHEN** more than three images are selected and the first uploads are in progress
-- **THEN** additional images MAY begin or complete compression without waiting for an upload pool slot
-- **AND** at most three HTTP uploads run concurrently
+#### Scenario: Compress while an upload is in progress
+- **WHEN** a slot's compression is pending while another slot's upload is in progress
+- **THEN** the compression MAY begin or complete without waiting for an upload pool slot
+- **AND** at most one HTTP upload runs at a time
 
 #### Scenario: Upload queue receives pending blobs only
-- **WHEN** a slot finishes compression successfully
+- **WHEN** a save flushes a slot whose compression finished successfully
 - **THEN** the client enqueues an upload of the compressed original+thumb pair
 - **AND** the upload job does not re-run full dual compression
 
-### Requirement: Parallel compress with concurrency limit
-The client SHALL compress multiple pending files with a maximum concurrency of 3 (same order of magnitude as upload). Slots waiting for a compress slot SHALL keep their local preview and a waiting/processing status as appropriate.
+### Requirement: Serial compress with limited pool
+The client SHALL compress multiple pending files with a maximum concurrency of 1 (matching the shared compress pool). Slots waiting for a compress slot SHALL keep their local preview and a waiting/processing status as appropriate.
 
 #### Scenario: Compress pool capped
-- **WHEN** more than three slots need compression at once
-- **THEN** at most three compressions run simultaneously
+- **WHEN** multiple slots need compression at once
+- **THEN** at most one compression runs at a time
 - **AND** remaining slots wait without blocking UI display of their previews
 
 ### Requirement: Cancel aborts compress and upload
@@ -235,3 +220,59 @@ Deleting or clearing a slot SHALL cancel that slot’s compress work and upload 
 - **WHEN** an admin deletes a slot that is compressing
 - **THEN** compression for that slot is cancelled or its result discarded
 - **AND** no upload is started for that slotId
+
+### Requirement: 内容图压缩后加水印
+管理端在图片压缩完成后、进入待保存状态前，客户端 SHALL 为内容图（作品封面、作品图、活动封面）叠加 `MUHU` 水印。水印 MUST 写入待上传的 original 与 thumb 字节，使保存时上传的即水印图。公司 logo MUST NOT 加水印。
+
+#### Scenario: 作品图加水印
+- **WHEN** 运营为作品图槽位选择图片并完成压缩
+- **THEN** 该槽位进入待保存前，其 pending 的 original 与 thumb 已包含 `MUHU` 水印
+
+#### Scenario: 活动封面对称处理
+- **WHEN** 运营为活动封面选择图片并完成压缩
+- **THEN** 活动封面同样带有 `MUHU` 水印后进入待保存
+
+#### Scenario: 公司 logo 不加水印
+- **WHEN** 运营为公司 Logo 选择图片并完成压缩
+- **THEN** 该图片不叠加水印，字节与压缩结果一致
+
+#### Scenario: 保存上传水印后的字节
+- **WHEN** 运营保存含待保存内容图的表单
+- **THEN** 上传到服务端的 original 与 thumb 均为加水印后的图片
+- **AND** 服务端返回的 CDN URL 指向水印图
+
+### Requirement: 水印斜向重复铺满
+水印 SHALL 以倾斜角度重复绘制 `MUHU` 文字并铺满整张图片，密度保持稀疏且覆盖图片四角；字号与步距 MUST 按图片尺寸等比缩放，使 original 与 thumb 呈现一致的视觉密度。
+
+#### Scenario: 多处重复且覆盖四角
+- **WHEN** 客户端为一张内容图生成水印
+- **THEN** 图中可见多处 `MUHU` 文字
+- **AND** 图片四个角落附近均有水印覆盖，裁掉单边无法去除水印
+
+#### Scenario: 稀疏不遮挡主体
+- **WHEN** 查看一张加水印后的 16:9 内容图
+- **THEN** 可见的重复文字条数在 4 到 16 之间
+- **AND** 图片主体区域仍然清晰可辨
+
+#### Scenario: 原图与缩略图密度一致
+- **WHEN** 同一张图分别生成 original 与 thumb
+- **THEN** 两张图的文字相对尺寸与重复密度基本一致
+
+### Requirement: 水印后保持上传体积上限
+水印重编码后，original MUST 不超过 3MiB、thumb MUST 不超过 0.5MiB。超过上限时，客户端 SHALL 先降低编码质量、必要时缩小尺寸后重新编码。若降低质量并缩小尺寸后仍不满足上限，槽位 MUST 进入失败状态。
+
+#### Scenario: JPEG 超限降质重编码
+- **WHEN** 水印后的 JPEG 超过对应上限
+- **THEN** 客户端以更低质量重新编码，直到不超过上限或达到最低质量
+
+#### Scenario: 仍超限则失败
+- **WHEN** 降质与缩尺寸后仍无法满足上限
+- **THEN** 槽位显示处理失败，且不进入待保存状态
+
+### Requirement: 水印失败不得静默降级
+水印绘制或重编码失败时，槽位 SHALL 进入失败状态并向运营展示错误；客户端 MUST NOT 以未加水印的图片进入待保存或上传。
+
+#### Scenario: 绘制失败
+- **WHEN** 客户端无法完成水印绘制或编码
+- **THEN** 槽位状态为失败并显示错误
+- **AND** 保存被阻断，直到重试成功或移除该槽位

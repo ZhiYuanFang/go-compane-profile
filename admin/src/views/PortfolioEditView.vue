@@ -40,9 +40,9 @@
         <textarea id="heartFlow" v-model="form.heartFlow" rows="5" />
       </div>
 
-      <DualImageField v-model="form.cover" label="封面" category="portfolio" />
+      <DualImageField v-model="form.cover" label="封面" category="portfolio" :disabled="saving" />
 
-      <ImageListEditor v-model="form.images" title="作品图" category="portfolio" />
+      <ImageListEditor v-model="form.images" title="作品图" category="portfolio" :disabled="saving" />
 
       <div class="form-actions">
         <button class="btn btn-primary" type="submit" :disabled="saving || !!blockingReason">

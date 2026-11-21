@@ -17,6 +17,16 @@
         {{ statusText }}
       </span>
       <span v-else-if="dragOver" class="dual-status pending">松开以添加</span>
+      <button
+        v-if="canWatermark"
+        type="button"
+        class="btn btn-sm btn-ghost dual-watermark"
+        :disabled="watermarking"
+        title="给已上传的线上原图补加水印，保存时上传替换（重复添加会叠加）"
+        @click="addWatermark"
+      >
+        {{ watermarking ? '加水印中…' : '加水印' }}
+      </button>
     </div>
 
     <div class="dual-body">
@@ -66,7 +76,7 @@
     </div>
 
     <p v-if="error" class="dual-error">{{ error }}</p>
-    <p v-if="hint" class="dual-hint">{{ hint }}</p>
+    <p v-if="hintText" class="dual-hint">{{ hintText }}</p>
 
     <Teleport to="body">
       <div
@@ -86,7 +96,8 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
-import { revokeObjectUrl } from '@/utils/imageProcess'
+import { revokeObjectUrl, WATERMARK_TEXT } from '@/utils/imageProcess'
+import { fetchRemoteImageFile } from '@/utils/remoteImage'
 import { createEmptyDual, dualStatusLabel, dualStatusTone, SLOT_STATUS } from '@/utils/dualSlot'
 import {
   cancelSlotUpload,
@@ -100,10 +111,7 @@ const props = defineProps({
     default: () => createEmptyDual(),
   },
   label: { type: String, default: '图片' },
-  hint: {
-    type: String,
-    default: '可拖拽图片到此处；选择后本地压缩，保存时上传（原图≤3MB，缩略≤0.5MB）',
-  },
+  hint: { type: String, default: '' },
   disabled: { type: Boolean, default: false },
   category: { type: String, default: 'general' },
 })
@@ -111,6 +119,7 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue'])
 
 const error = ref('')
+const watermarking = ref(false)
 const localPreview = ref('')
 const localOriginalPreview = ref('')
 const pendingPreview = ref('')
@@ -125,7 +134,26 @@ const isBusyStatus = computed(() => {
   return s === SLOT_STATUS.COMPRESSING || s === SLOT_STATUS.QUEUED || s === SLOT_STATUS.UPLOADING
 })
 
+/** Only already-uploaded, not-yet-reprocessed images need a watermark retrofit. */
+const canWatermark = computed(
+  () =>
+    !props.disabled &&
+    props.category !== 'logo' &&
+    !props.modelValue?.pending &&
+    !isBusyStatus.value &&
+    !!(props.modelValue?.original || props.modelValue?.thumb),
+)
+
 const statusText = computed(() => dualStatusLabel(props.modelValue))
+
+const hintText = computed(() => {
+  if (props.hint) return props.hint
+  const limits = '（原图≤3MB，缩略≤0.5MB）'
+  if (props.category === 'logo') {
+    return `可拖拽图片到此处；选择后本地压缩，保存时上传${limits}`
+  }
+  return `可拖拽图片到此处；选择后本地压缩并添加 ${WATERMARK_TEXT} 水印，保存时上传${limits}`
+})
 
 const statusToneClass = computed(() => {
   const tone = dualStatusTone(props.modelValue)
@@ -133,16 +161,17 @@ const statusToneClass = computed(() => {
 })
 
 const previewUrl = computed(() => {
-  if (localPreview.value) return localPreview.value
   if (pendingPreview.value) return pendingPreview.value
+  if (localPreview.value) return localPreview.value
   const v = props.modelValue
   if (!v) return ''
   return v.thumb || v.original || v.localPreview || ''
 })
 
 const lightboxUrl = computed(() => {
-  if (localOriginalPreview.value) return localOriginalPreview.value
   if (pendingOriginalPreview.value) return pendingOriginalPreview.value
+  if (pendingPreview.value) return pendingPreview.value
+  if (localOriginalPreview.value) return localOriginalPreview.value
   const v = props.modelValue
   if (!v) return previewUrl.value
   return v.original || v.thumb || v.localPreview || previewUrl.value
@@ -171,14 +200,7 @@ watch(
       revokePendingPreviews()
       return
     }
-    if (localPreview.value) {
-      // upgrade lightbox to compressed original when available
-      if (pending.original) {
-        revokeObjectUrl(localOriginalPreview.value)
-        localOriginalPreview.value = URL.createObjectURL(pending.original)
-      }
-      return
-    }
+    // Pending blobs are watermarked: prefer them over the raw local preview.
     syncPendingPreviews(pending)
   },
   { immediate: true },
@@ -303,6 +325,22 @@ function applyFile(file) {
   })
 }
 
+async function addWatermark() {
+  if (!canWatermark.value || watermarking.value) return
+  watermarking.value = true
+  error.value = ''
+  try {
+    const file = await fetchRemoteImageFile(
+      props.modelValue.original || props.modelValue.thumb,
+    )
+    applyFile(file)
+  } catch (err) {
+    error.value = err.message || '加水印失败'
+  } finally {
+    watermarking.value = false
+  }
+}
+
 function retry() {
   const slotId = props.modelValue?.slotId || ensureSlotId()
   const pending = props.modelValue?.pending
@@ -312,7 +350,7 @@ function retry() {
       pending,
       category: props.category,
       patch: (partial) => patchSelf(partial),
-    })
+    }).catch(() => {})
     return
   }
   openFilePicker()
@@ -416,6 +454,10 @@ function clear() {
 
 .dual-status.pending {
   color: var(--accent);
+}
+
+.dual-watermark {
+  margin-left: auto;
 }
 
 .dual-status.tone-wait {
