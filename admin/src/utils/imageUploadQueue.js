@@ -200,11 +200,14 @@ export function enqueuePendingUpload({
 /**
  * Compress in compress pool and leave slot READY with pending blobs (no OSS upload).
  * Sets instant localPreview from the selected File unless skipLocalPreviewSetup.
+ * Watermark is opt-in: pass `watermark: true` only from the explicit 加水印 action.
+ * Logo category never receives a watermark even if `watermark` is true.
  */
 export function enqueueFileUpload({
   slotId,
   file,
   category = 'general',
+  watermark = false,
   patch,
   prevLocalPreview = '',
   skipLocalPreviewSetup = false,
@@ -214,6 +217,8 @@ export function enqueueFileUpload({
 
   // Replace any in-flight work for this slot
   cancelSlotUpload(slotId)
+
+  const applyWatermark = !!watermark && category !== 'logo'
 
   if (!skipLocalPreviewSetup) {
     if (prevLocalPreview) revokeObjectUrl(prevLocalPreview)
@@ -253,7 +258,7 @@ export function enqueueFileUpload({
       if (compressQueue.isCancelled(slotId) || signal.aborted) return
       patch({ status: SLOT_STATUS.COMPRESSING, error: '' })
       const pair = await processDualImage(file, {
-        watermark: category !== 'logo',
+        watermark: applyWatermark,
         onWatermarkStart: () => {
           if (compressQueue.isCancelled(slotId) || signal.aborted) return
           patch({ status: SLOT_STATUS.WATERMARKING })

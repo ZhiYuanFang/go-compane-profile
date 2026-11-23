@@ -226,23 +226,45 @@ Deleting or clearing a slot SHALL cancel that slot’s compress work and upload 
 - **THEN** compression for that slot is cancelled or its result discarded
 - **AND** no upload is started for that slotId
 
-### Requirement: 内容图压缩后加水印
-管理端在图片压缩完成后、进入待保存状态前，客户端 SHALL 为内容图（作品封面、作品图、活动封面）叠加 `MUHU` 水印。水印 MUST 写入待上传的 original 与 thumb 字节，使保存时上传的即水印图。公司 logo MUST NOT 加水印。
+### Requirement: 选图压缩不自动加水印
+管理端为内容图（作品封面、作品图、活动封面）选择或拖入图片并完成压缩后，客户端 MUST NOT 自动叠加水印；槽位 SHALL 以未加水印的 pending original/thumb 进入待保存，并允许直接保存上线。公司 logo MUST NOT 加水印。
 
-#### Scenario: 作品图加水印
+#### Scenario: 作品图选图后无水印
 - **WHEN** 运营为作品图槽位选择图片并完成压缩
-- **THEN** 该槽位进入待保存前，其 pending 的 original 与 thumb 已包含 `MUHU` 水印
+- **THEN** 该槽位进入待保存，其 pending 的 original 与 thumb 不含 `MUHU` 水印
 
-#### Scenario: 活动封面对称处理
+#### Scenario: 活动封面选图后无水印
 - **WHEN** 运营为活动封面选择图片并完成压缩
-- **THEN** 活动封面同样带有 `MUHU` 水印后进入待保存
+- **THEN** 该槽位进入待保存，pending 不含水印
 
-#### Scenario: 公司 logo 不加水印
+#### Scenario: 干净图可直接保存上线
+- **WHEN** 运营保存仅含压缩后、未加水印 pending 的内容图表单
+- **THEN** 上传到服务端的 original 与 thumb 为未加水印的压缩结果
+- **AND** 服务端返回的 CDN URL 指向无水印图
+
+#### Scenario: 公司 logo 仍不加水印
 - **WHEN** 运营为公司 Logo 选择图片并完成压缩
 - **THEN** 该图片不叠加水印，字节与压缩结果一致
 
-#### Scenario: 保存上传水印后的字节
-- **WHEN** 运营保存含待保存内容图的表单
+### Requirement: 显式加水印（已上线或干净 pending）
+运营通过「加水印」控件对内容图槽位请求加水印时，客户端 SHALL 为该槽位叠加 `MUHU` 水印并写入待上传的 original 与 thumb。目标槽位 SHALL 包括：已上线且无 pending 的内容图，以及已有干净 pending（待保存、尚未上线）的内容图。公司 logo MUST NOT 作为加水印目标。重复加水印 MAY 叠加。
+
+#### Scenario: 已上线内容图加水印
+- **WHEN** 运营对已上线且无 pending 的内容图点击加水印
+- **THEN** 客户端取得原图像素后进入压缩与水印管线
+- **AND** 槽位进入待保存，pending 的 original 与 thumb 含 `MUHU` 水印
+
+#### Scenario: 干净 pending 加水印
+- **WHEN** 运营对处于待保存、pending 尚未上线的内容图点击加水印
+- **THEN** 客户端直接对本地 pending 字节叠加水印，不发起 CDN 下载
+- **AND** 槽位仍为待保存，pending 更新为含水印的 original 与 thumb
+
+#### Scenario: logo 不可加水印
+- **WHEN** 槽位类别为公司 Logo
+- **THEN** 「加水印」控件不可用或对 logo 无效
+
+#### Scenario: 保存上传显式水印后的字节
+- **WHEN** 运营保存经显式加水印后进入待保存的内容图
 - **THEN** 上传到服务端的 original 与 thumb 均为加水印后的图片
 - **AND** 服务端返回的 CDN URL 指向水印图
 
@@ -275,9 +297,27 @@ Deleting or clearing a slot SHALL cancel that slot’s compress work and upload 
 - **THEN** 槽位显示处理失败，且不进入待保存状态
 
 ### Requirement: 水印失败不得静默降级
-水印绘制或重编码失败时，槽位 SHALL 进入失败状态并向运营展示错误；客户端 MUST NOT 以未加水印的图片进入待保存或上传。
+在运营主动请求加水印的路径上，水印绘制或重编码失败时，槽位 SHALL 进入失败状态并向运营展示错误；客户端 MUST NOT 以未加水印的图片冒充本次加水印成功而进入待保存或上传。选图/压缩未请求加水印时，本要求不适用。
 
 #### Scenario: 绘制失败
-- **WHEN** 客户端无法完成水印绘制或编码
+- **WHEN** 运营点击加水印后客户端无法完成水印绘制或编码
 - **THEN** 槽位状态为失败并显示错误
-- **AND** 保存被阻断，直到重试成功或移除该槽位
+- **AND** 不得将本次加水印视为成功
+
+#### Scenario: 选图压缩失败与水印无关
+- **WHEN** 运营仅选择图片且压缩失败
+- **THEN** 槽位按既有压缩失败路径处理
+- **AND** 不因「未加水印」单独判失败
+
+### Requirement: 补水印原图浏览器直拉 CDN
+为已上线内容图补加水印时，客户端 SHALL 使用浏览器对槽位已有 CDN URL（优先 original，其次 thumb）发起跨域 `fetch` 取得图片字节，再进入既有压缩/水印管线。系统 MUST NOT 再通过同源 admin 媒体代理端点代下这些字节。本机或其它未获 CDN CORS 放行的 Origin 直拉失败时，客户端 MUST 按现有下载失败路径提示错误，且 MUST NOT 回退到服务端代理。
+
+#### Scenario: 生产管理端直拉 CDN 成功
+- **WHEN** 运营在已配置 CORS 的管理端域名上对已上传内容图点击加水印
+- **THEN** 浏览器直接向该图 CDN URL 请求图片字节
+- **AND** 取得的字节进入后续压缩与水印，不请求 `/admin/api/media/proxy`
+
+#### Scenario: 未放行 Origin 失败且不回退代理
+- **WHEN** 当前页面 Origin 未被 CDN CORS 允许，导致直拉失败
+- **THEN** 该槽位按下载失败处理并向运营展示错误
+- **AND** 客户端不调用 admin 媒体代理作为兜底

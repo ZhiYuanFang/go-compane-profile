@@ -21,7 +21,7 @@
           type="button"
           class="btn btn-sm btn-ghost"
           :disabled="locked || watermarking || !selectedWatermarkTargets.length"
-          title="给勾选的已上线图片补加水印，保存时上传替换（重复添加会叠加）"
+          title="给勾选的已上线或待保存图片补加水印，保存时上传替换（重复添加会叠加）"
           @click="watermarkSelected"
         >
           {{ watermarking ? '处理中…' : '加水印' }}
@@ -44,7 +44,7 @@
     </div>
 
     <p v-if="error" class="image-list-error">{{ error }}</p>
-    <div v-if="!listAcc.length" class="muted empty-list">暂无图片，可批量选择（选后本地处理并加水印，保存时上传）</div>
+    <div v-if="!listAcc.length" class="muted empty-list">暂无图片，可批量选择（选后本地压缩，保存时上传；需要时点加水印）</div>
 
     <div v-else class="gallery-grid">
       <div
@@ -166,7 +166,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, watch
 import { revokeObjectUrl } from '@/utils/imageProcess'
 import { mapPool } from '@/utils/mapPool'
 import { createPreviewObjectUrl } from '@/utils/previewImage'
-import { fetchRemoteImageFile } from '@/utils/remoteImage'
+import { blobAsImageFile, fetchRemoteImageFile } from '@/utils/remoteImage'
 import {
   createEmptyDual,
   dualStatusLabel,
@@ -242,7 +242,7 @@ function revokePendingCache(pending) {
 
 function cellPreview(item) {
   if (!item) return ''
-  // Pending blobs are watermarked: prefer them over the raw local preview.
+  // Prefer pending (compressed, optionally watermarked) over the raw local preview.
   if (item.pending?.thumb) return getBlobUrl(item.pending.thumb)
   if (item.localPreview) return item.localPreview
   if (item.thumb) return item.thumb
@@ -268,15 +268,13 @@ function isBusy(item) {
   )
 }
 
-/** Selected images that are still untouched remote uploads. */
+/** Selected content slots that can take an explicit watermark (remote or clean pending). */
 const selectedWatermarkTargets = computed(() =>
-  listAcc.value.filter(
-    (item) =>
-      selected.value.has(item.slotId) &&
-      !item.pending &&
-      !isBusy(item) &&
-      !!(item.original || item.thumb),
-  ),
+  listAcc.value.filter((item) => {
+    if (!selected.value.has(item.slotId) || isBusy(item)) return false
+    if (item.pending?.original || item.pending?.thumb) return true
+    return !item.pending && !!(item.original || item.thumb)
+  }),
 )
 
 function clearSelection() {
@@ -374,12 +372,13 @@ function move(i, delta) {
   clearSelection()
 }
 
-function startUpload(item, file) {
+function startUpload(item, file, { watermark = false } = {}) {
   if (locked.value || !item?.slotId || !file) return
   enqueueFileUpload({
     slotId: item.slotId,
     file,
     category: props.category,
+    watermark,
     prevLocalPreview: item.localPreview || '',
     patch: (partial) => patchSlot(item.slotId, partial),
   })
@@ -397,10 +396,12 @@ async function watermarkSelected() {
 
   watermarking.value = true
   error.value = ''
-  // The remote download can be slow; show it on every selected slot immediately.
+  // Remote downloads can be slow; mark those slots immediately. Pending skips download.
   for (const { item } of targets) {
     const current = listAcc.value.find((x) => x.slotId === item.slotId)
-    if (current) patchSlot(current.slotId, { status: SLOT_STATUS.DOWNLOADING, error: '' })
+    if (!current) continue
+    if (current.pending?.original || current.pending?.thumb) continue
+    patchSlot(current.slotId, { status: SLOT_STATUS.DOWNLOADING, error: '' })
   }
 
   let failures = []
@@ -408,14 +409,29 @@ async function watermarkSelected() {
     failures = (
       await mapPool(targets, WATERMARK_FETCH_CONCURRENCY, async ({ item, index }) => {
         const before = listAcc.value.find((x) => x.slotId === item.slotId)
-        if (!before || before.status !== SLOT_STATUS.DOWNLOADING) return ''
+        if (!before) return ''
+
+        if (before.pending?.original || before.pending?.thumb) {
+          try {
+            const blob = before.pending.original || before.pending.thumb
+            const file = blobAsImageFile(blob, 'pending')
+            const current = listAcc.value.find((x) => x.slotId === item.slotId)
+            if (!current?.pending || isBusy(current)) return ''
+            startUpload(current, file, { watermark: true })
+            return ''
+          } catch (err) {
+            return `#${index + 1} ${err.message || '处理失败'}`
+          }
+        }
+
+        if (before.status !== SLOT_STATUS.DOWNLOADING) return ''
         try {
           const file = await fetchRemoteImageFile(before.original || before.thumb)
           // The slot may have been removed or replaced while its download was in flight.
           const current = listAcc.value.find((x) => x.slotId === item.slotId)
           if (!current || current.status !== SLOT_STATUS.DOWNLOADING || current.pending) return ''
           if (!current.original && !current.thumb) return ''
-          startUpload(current, file)
+          startUpload(current, file, { watermark: true })
           return ''
         } catch (err) {
           const current = listAcc.value.find((x) => x.slotId === item.slotId)

@@ -22,7 +22,7 @@
         type="button"
         class="btn btn-sm btn-ghost dual-watermark"
         :disabled="watermarking"
-        title="给已上传的线上原图补加水印，保存时上传替换（重复添加会叠加）"
+        title="给已上线或待保存图片补加水印，保存时上传替换（重复添加会叠加）"
         @click="addWatermark"
       >
         {{ watermarking ? '加水印中…' : '加水印' }}
@@ -98,7 +98,7 @@
 import { computed, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
 import { revokeObjectUrl, WATERMARK_TEXT } from '@/utils/imageProcess'
 import { createPreviewObjectUrl } from '@/utils/previewImage'
-import { fetchRemoteImageFile } from '@/utils/remoteImage'
+import { blobAsImageFile, fetchRemoteImageFile } from '@/utils/remoteImage'
 import { createEmptyDual, dualStatusLabel, dualStatusTone, SLOT_STATUS } from '@/utils/dualSlot'
 import {
   cancelSlotUpload,
@@ -142,15 +142,14 @@ const isBusyStatus = computed(() => {
   )
 })
 
-/** Only already-uploaded, not-yet-reprocessed images need a watermark retrofit. */
-const canWatermark = computed(
-  () =>
-    !props.disabled &&
-    props.category !== 'logo' &&
-    !props.modelValue?.pending &&
-    !isBusyStatus.value &&
-    !!(props.modelValue?.original || props.modelValue?.thumb),
-)
+/** Already-uploaded or clean-pending content images can take an explicit watermark. */
+const canWatermark = computed(() => {
+  if (props.disabled || props.category === 'logo' || isBusyStatus.value) return false
+  const v = props.modelValue
+  if (!v) return false
+  if (v.pending?.original || v.pending?.thumb) return true
+  return !v.pending && !!(v.original || v.thumb)
+})
 
 const statusText = computed(() => dualStatusLabel(props.modelValue))
 
@@ -160,7 +159,7 @@ const hintText = computed(() => {
   if (props.category === 'logo') {
     return `可拖拽图片到此处；选择后本地压缩，保存时上传${limits}`
   }
-  return `可拖拽图片到此处；选择后本地压缩并添加 ${WATERMARK_TEXT} 水印，保存时上传${limits}`
+  return `可拖拽图片到此处；选择后本地压缩，保存时上传；需要时点「加水印」添加 ${WATERMARK_TEXT}${limits}`
 })
 
 const statusToneClass = computed(() => {
@@ -208,7 +207,7 @@ watch(
       revokePendingPreviews()
       return
     }
-    // Pending blobs are watermarked: prefer them over the raw local preview.
+    // Prefer pending (compressed, optionally watermarked) over the raw local preview.
     syncPendingPreviews(pending)
   },
   { immediate: true },
@@ -308,7 +307,7 @@ function firstImageFile(fileList) {
   return null
 }
 
-function applyFile(file) {
+function applyFile(file, { watermark = false } = {}) {
   if (!file) return
   if (props.disabled) return
 
@@ -341,6 +340,7 @@ function applyFile(file) {
     slotId,
     file,
     category: props.category,
+    watermark,
     skipLocalPreviewSetup: true,
     patch: (partial) => {
       patchSelf(partial)
@@ -354,6 +354,21 @@ async function addWatermark() {
   if (!canWatermark.value || watermarking.value) return
   watermarking.value = true
   error.value = ''
+
+  const pending = props.modelValue?.pending
+  if (pending?.original || pending?.thumb) {
+    try {
+      const file = blobAsImageFile(pending.original || pending.thumb, 'pending')
+      if (props.disabled) return
+      applyFile(file, { watermark: true })
+    } catch (err) {
+      error.value = err.message || '加水印失败'
+    } finally {
+      watermarking.value = false
+    }
+    return
+  }
+
   const sourceUrl = props.modelValue.original || props.modelValue.thumb
   if (!sourceUrl) {
     watermarking.value = false
@@ -368,7 +383,7 @@ async function addWatermark() {
       patchSelf({ status: SLOT_STATUS.DONE, error: '' })
       return
     }
-    applyFile(file)
+    applyFile(file, { watermark: true })
   } catch (err) {
     if ((props.modelValue?.original || props.modelValue?.thumb) === sourceUrl) {
       patchSelf({ status: SLOT_STATUS.DONE, error: '' })

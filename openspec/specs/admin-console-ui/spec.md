@@ -364,23 +364,66 @@ The pair editor UI SHALL label both render and real slots as optional (or otherw
 - **WHEN** an operator views a gallery pair row
 - **THEN** neither slot is presented as the sole required field of the pair
 
+### Requirement: 加水印目标含已上线与干净 pending
+作品图列表与封面双图字段的「加水印」控件 SHALL 在运营选中（或当前槽位为）下列内容图时可触发：已上线且无 pending，或已有干净 pending 的待保存槽位。logo 与忙碌中的槽位 MUST NOT 成为有效目标。控件文案 SHALL 表明可对已上线或待保存图补加水印。
+
+#### Scenario: 列表勾选已上线可加水印
+- **WHEN** 运营勾选一张已上线、无 pending、非忙碌的作品图
+- **THEN** 「加水印」按钮可用
+
+#### Scenario: 列表勾选干净 pending 可加水印
+- **WHEN** 运营勾选一张处于待保存、有 pending、非忙碌的作品图
+- **THEN** 「加水印」按钮可用
+
+#### Scenario: 封面字段已上线或 pending 可加水印
+- **WHEN** 封面双图字段为已上线无 pending，或为干净 pending 待保存，且非 logo、非忙碌
+- **THEN** 该字段显示可用的「加水印」控件
+
+#### Scenario: 忙碌或 logo 不可加水印
+- **WHEN** 槽位正在下载/压缩/加水印/上传，或类别为 logo
+- **THEN** 「加水印」对该槽位不可用
+
+### Requirement: 干净 pending 加水印时展示处理状态
+对干净 pending 槽位点击加水印时，客户端 SHALL 跳过「下载原图…」，直接进入排队/处理中…/添加水印中… 等既有处理状态，直至回到待保存或失败。
+
+#### Scenario: pending 加水印无下载态
+- **WHEN** 运营对干净 pending 内容图点击加水印
+- **THEN** 该槽位不显示「下载原图…」
+- **AND** 进入后续排队或处理/加水印状态，完成后回到待保存
+
+### Requirement: 选图提示不再声称自动加水印
+内容图选图/拖入区域的默认提示与空列表文案 SHALL 说明选择后本地压缩、保存时上传，以及需要时可通过「加水印」补印；MUST NOT 声称选择后会自动添加水印。
+
+#### Scenario: 封面提示文案
+- **WHEN** 运营查看非 logo 的封面双图字段默认提示
+- **THEN** 文案提到本地压缩与保存上传，不声称选图自动加水印
+- **AND** 可提示需要时使用加水印
+
+#### Scenario: 列表空态文案
+- **WHEN** 作品图列表为空
+- **THEN** 空态文案不声称批量选择后会自动加水印
+
 ### Requirement: 待保存预览展示水印图
-当内容槽位完成压缩与水印并进入待保存状态时，管理端槽位预览 SHALL 显示带水印的 pending thumb（或等价的本地水印预览）；放大或灯箱视图 SHALL 显示带水印的 pending original。预览 MUST NOT 继续显示未加水印的选图预览。
+当内容槽位完成处理并进入待保存状态时，管理端槽位预览 SHALL 显示当前 pending thumb（或等价本地预览）；放大或灯箱视图 SHALL 显示当前 pending original。若该 pending 经显式加水印生成，预览即为水印图；若仅压缩未加水印，预览 MUST 为无水印压缩结果，且 MUST NOT 继续显示选图时的原始本地预览。
 
 #### Scenario: 网格预览显示水印
-- **WHEN** 作品图或活动封面槽位进入待保存状态
-- **THEN** 该槽位缩略图显示带 `MUHU` 水印的图片
+- **WHEN** 作品图或活动封面槽位经「加水印」进入待保存状态
+- **THEN** 该槽位缩略图显示带 `MUHU` 水印的 pending 图片
 
 #### Scenario: 放大查看水印原图
-- **WHEN** 运营在待保存状态点击内容槽位放大查看
-- **THEN** 放大视图展示带水印的 original
+- **WHEN** 运营在经显式加水印后的待保存状态点击内容槽位放大查看
+- **THEN** 放大视图展示带水印的 pending original
 
 #### Scenario: logo 预览不加水印
 - **WHEN** 公司 Logo 槽位完成压缩
 - **THEN** 其预览与放大视图不显示水印
 
+#### Scenario: 未加水印待保存预览
+- **WHEN** 作品图或活动封面槽位仅完成压缩、未加水印并进入待保存
+- **THEN** 该槽位缩略图显示无水印的 pending thumb
+
 ### Requirement: 补水印时展示远程下载状态
-为已上传图片补加水印时，客户端 SHALL 在拉取线上原图期间将对应槽位置为下载状态并显示「下载原图…」。下载完成后 SHALL 自动进入后续排队/压缩/添加水印状态；下载失败时槽位 MUST 恢复为「已上传」，并向运营展示可定位到具体序号的错误。
+为已上传、无 pending 的图片补加水印时，客户端 SHALL 在浏览器直拉 CDN 原图期间将对应槽位置为下载状态并显示「下载原图…」。下载完成后 SHALL 自动进入后续排队/压缩/添加水印状态；下载失败（含 CORS 拒绝）时槽位 MUST 恢复为「已上传」，并向运营展示可定位到具体序号的错误。本要求仅适用于已上线目标；干净 pending 目标见「干净 pending 加水印时展示处理状态」。
 
 #### Scenario: 已上线图片补水印显示下载状态
 - **WHEN** an admin selects already-uploaded images and clicks 加水印
@@ -388,7 +431,7 @@ The pair editor UI SHALL label both render and real slots as optional (or otherw
 - **AND** as each download finishes, its slot moves on to 排队中/处理中…/添加水印中…
 
 #### Scenario: 下载失败恢复已上传
-- **WHEN** fetching a selected slot's remote original fails
+- **WHEN** fetching a selected slot's remote original from CDN fails
 - **THEN** that slot returns to 已上传 instead of entering a failed state
 - **AND** the error message names the slot by its index
 - **AND** the other selected slots continue processing

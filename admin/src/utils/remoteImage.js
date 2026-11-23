@@ -1,4 +1,23 @@
 /**
+ * Wrap an image Blob as a named File for the compress/watermark pipeline.
+ * @param {Blob} blob
+ * @param {string} [basename='image']
+ * @returns {File}
+ */
+export function blobAsImageFile(blob, basename = 'image') {
+  if (!blob) throw new Error('缺少图片数据')
+  const type = blob.type || 'image/jpeg'
+  if (type && !type.startsWith('image/')) {
+    throw new Error('文件不是图片')
+  }
+  const ext = type.includes('png') ? 'png' : type.includes('webp') ? 'webp' : 'jpg'
+  return new File([blob], `${basename}.${ext}`, {
+    type,
+    lastModified: Date.now(),
+  })
+}
+
+/**
  * Fetch an already-uploaded CDN image directly (CORS) and wrap it as a File
  * so it can go through the normal compress/watermark pipeline.
  * @param {string} url Absolute CDN URL of the existing image
@@ -25,6 +44,5 @@ export async function fetchRemoteImageFile(url) {
     throw new Error('线上文件不是图片')
   }
 
-  const ext = blob.type.includes('png') ? 'png' : blob.type.includes('webp') ? 'webp' : 'jpg'
-  return new File([blob], `remote.${ext}`, { type: blob.type })
+  return blobAsImageFile(blob, 'remote')
 }
