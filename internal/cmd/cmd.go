@@ -70,7 +70,8 @@ var (
 					r.Response.ServeFile(gfile.Join(adminDir, "index.html"))
 				}
 				s.BindHandler("GET:/admin", serveAdmin)
-				s.BindHandler("GET:/admin/{*path}", serveAdmin)
+				// GoFrame v2.5.x catch-all is /*name; {*name} does not match SPA paths like /admin/company.
+				s.BindHandler("GET:/admin/*path", serveAdmin)
 			}
 
 			g.Log().Infof(ctx, "listening on %s (db=%s)", cfg.ServerAddress, maskLink(cfg.MySQLLink))
